@@ -298,8 +298,6 @@ class _LeftPanel extends StatelessWidget {
           ),
         ),
 
-        const SizedBox(height: 28),
-        _UsbTunnelBox(),
         const SizedBox(height: 20),
         _RequirementsBox(),
       ],
@@ -330,24 +328,6 @@ class _StatusBadge extends StatelessWidget {
         fontSize: 12, fontWeight: FontWeight.w700, letterSpacing: 1.5,
       )),
     ]);
-  }
-}
-
-class _UsbTunnelBox extends StatelessWidget {
-  @override
-  Widget build(BuildContext context) {
-    return _Card(
-      header: '⟳  USB TUNNEL',
-      child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-        _CodeLine('adb reverse tcp:5000 tcp:5000'),
-        const SizedBox(height: 8),
-        const Text(
-          'Run this after plugging in the USB cable.',
-          style: TextStyle(fontFamily: 'monospace', fontSize: 11,
-              color: AppTheme.textDim),
-        ),
-      ]),
-    );
   }
 }
 
