@@ -1,0 +1,22 @@
+[package]
+name        = "gamepad_server"
+version     = "0.1.0"
+edition     = "2021"
+description = "Windows backend for the Mobile Gamepad system"
+
+[[bin]]
+name = "gamepad_server"
+path = "src/main.rs"
+
+[dependencies]
+tokio      = { version = "1",    features = ["full"] }
+anyhow     = "1"
+log        = "0.4"
+env_logger = "0.10"
+vigem-client = "0.1"
+
+[profile.release]
+opt-level       = 3
+lto             = true
+codegen-units   = 1
+strip           = true

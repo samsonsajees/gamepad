@@ -1,0 +1,44 @@
+syntax = "proto3";
+package gamepad;
+
+// NOTE: This file is for reference only.
+// The project uses a custom binary protocol (no protoc required).
+// See rust_backend/src/protocol.rs and flutter_app/lib/core/packet_encoder.dart
+
+message ControllerPacket {
+  uint32 player_id   = 1;
+  uint32 sequence    = 2;
+  uint64 timestamp   = 3;
+  float  left_x      = 4;
+  float  left_y      = 5;
+  float  right_x     = 6;
+  float  right_y     = 7;
+  float  left_trigger  = 8;
+  float  right_trigger = 9;
+  uint32 buttons     = 10;
+  float  gyro_x      = 11;
+  float  gyro_y      = 12;
+  float  gyro_z      = 13;
+  float  accel_x     = 14;
+  float  accel_y     = 15;
+  float  accel_z     = 16;
+}
+
+message HandshakePacket {
+  uint32 player_id   = 1;
+  string device_name = 2;
+  string layout      = 3;
+}
+
+message ServerAck {
+  bool   success            = 1;
+  uint32 assigned_player_id = 2;
+  string message            = 3;
+}
+
+message HapticPacket {
+  uint32 player_id   = 1;
+  float  large_motor = 2;
+  float  small_motor = 3;
+  uint32 duration_ms = 4;
+}
