@@ -273,7 +273,7 @@ class _CenterPanel extends ConsumerWidget {
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
             GamepadButton(
-              label: 'BACK',
+              label: 'MAP',
               color: AppTheme.textSec,
               size: 46,
               fontSize: 9,
@@ -282,7 +282,7 @@ class _CenterPanel extends ConsumerWidget {
             ),
             const SizedBox(width: 14),
             GamepadButton(
-              label: 'START',
+              label: 'BACK',
               color: AppTheme.textSec,
               size: 46,
               fontSize: 9,
