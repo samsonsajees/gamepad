@@ -63,7 +63,7 @@ class _RacingScreenState extends ConsumerState<RacingScreen> {
                 // ── Main controls ───────────────────────────────────────
                 Expanded(
                   child: Padding(
-                    padding: const EdgeInsets.fromLTRB(12, 0, 12, 12),
+                    padding: const EdgeInsets.fromLTRB(32, 0, 32, 12),
                     child: Row(
                       crossAxisAlignment: CrossAxisAlignment.stretch,
                       children: [
