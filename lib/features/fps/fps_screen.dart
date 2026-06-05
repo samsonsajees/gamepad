@@ -4,7 +4,6 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../core/packet_encoder.dart';
 import '../../core/tcp_client.dart';
 import '../../shared/theme.dart';
-import '../connection/connection_mode.dart';
 import '../connection/connection_provider.dart';
 import '../racing/packet_sender.dart';
 import '../settings/settings_provider.dart';

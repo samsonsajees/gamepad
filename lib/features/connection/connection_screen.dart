@@ -5,7 +5,6 @@ import '../../core/constants.dart';
 import '../../core/tcp_client.dart';
 import '../../shared/theme.dart';
 import '../racing/racing_screen.dart';
-import 'connection_mode.dart';
 import 'connection_provider.dart';
 import 'wifi_connect_screen.dart';
 
