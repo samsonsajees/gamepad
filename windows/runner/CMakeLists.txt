@@ -30,6 +30,12 @@ target_compile_definitions(${BINARY_NAME} PRIVATE "FLUTTER_VERSION_BUILD=${FLUTT
 # Disable Windows macros that collide with C++ standard library functions.
 target_compile_definitions(${BINARY_NAME} PRIVATE "NOMINMAX")
 
+# Request UAC administrator elevation via the linker-generated manifest.
+# /MANIFESTUAC injects the trustInfo into the linker's manifest, which mt.exe
+# then merges cleanly with runner.exe.manifest (DPI-only, no trustInfo conflict).
+target_link_options(${BINARY_NAME} PRIVATE
+  "/MANIFESTUAC:level='requireAdministrator' uiAccess='false'")
+
 # Add dependency libraries and include directories. Add any application-specific
 # dependencies here.
 target_link_libraries(${BINARY_NAME} PRIVATE flutter flutter_wrapper_app)

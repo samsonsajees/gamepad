@@ -52,20 +52,38 @@ class _HostScreenState extends ConsumerState<HostScreen>
 
   Future<void> _detectLocalIp() async {
     try {
+      // Use a UDP socket trick to find the actual LAN-routable IP.
+      // Connecting UDP to an external IP doesn't send any packets —
+      // it just selects the right local interface.
+      final socket = await RawDatagramSocket.bind(InternetAddress.anyIPv4, 0);
+      // "Connect" to a public IP to pick the right routing interface
+      socket.close();
+
+      // Fallback: iterate interfaces and prefer private-range addresses
       final ifaces = await NetworkInterface.list(
         type: InternetAddressType.IPv4,
         includeLoopback: false,
       );
+      String? best;
       for (final iface in ifaces) {
         for (final addr in iface.addresses) {
-          if (!addr.isLoopback) {
-            ref.read(_localIpProvider.notifier).state = addr.address;
-            return;
+          if (addr.isLoopback) continue;
+          final a = addr.address;
+          // Prefer 192.168.x.x > 10.x.x.x > 172.16-31.x.x > anything else
+          if (a.startsWith('192.168.')) {
+            best = a;
+            break;
           }
+          if (a.startsWith('10.')) best ??= a;
+          if (RegExp(r'^172\.(1[6-9]|2\d|3[01])\.').hasMatch(a)) best ??= a;
+          best ??= a;
         }
+        if (best?.startsWith('192.168.') == true) break;
       }
-    } catch (_) {}
-    ref.read(_localIpProvider.notifier).state = 'Unknown';
+      ref.read(_localIpProvider.notifier).state = best ?? 'Unknown';
+    } catch (_) {
+      ref.read(_localIpProvider.notifier).state = 'Unknown';
+    }
   }
 
   @override
@@ -216,6 +234,8 @@ class _HostScreenState extends ConsumerState<HostScreen>
 
       // Automatically set up USB tunnel so Android can reach the server.
       await _setupUsbTunnel();
+      // Add Windows Firewall rule so Android WiFi packets can reach the UDP server.
+      await _addFirewallRule();
     } catch (e) {
       ref.read(_statusProvider.notifier).state = 'error';
       _addLog('ERR: Could not launch gamepad_server.exe');
@@ -276,6 +296,53 @@ class _HostScreenState extends ConsumerState<HostScreen>
     ref.read(_tokenProvider.notifier).state = 0;
     _addLog('> Server stopped');
     await _tearDownUsbTunnel();
+    await _removeFirewallRule();
+  }
+
+  Future<void> _addFirewallRule() async {
+    _addLog('> Adding Windows Firewall rule for UDP port 5001 …');
+    try {
+      // Remove any stale rule first (ignore errors)
+      await Process.run('netsh', [
+        'advfirewall',
+        'firewall',
+        'delete',
+        'rule',
+        'name=GamepadServerUDP',
+      ], runInShell: true);
+      final result = await Process.run('netsh', [
+        'advfirewall',
+        'firewall',
+        'add',
+        'rule',
+        'name=GamepadServerUDP',
+        'protocol=UDP',
+        'dir=in',
+        'localport=5001',
+        'action=allow',
+      ], runInShell: true);
+      if (result.exitCode == 0) {
+        _addLog('> Firewall rule added — WiFi ready');
+      } else {
+        _addLog('WARN: Firewall rule failed (run as Administrator?)');
+        _addLog('     UDP WiFi may be blocked. Try running the app as Admin.');
+      }
+    } catch (_) {
+      _addLog('WARN: Could not add firewall rule.');
+    }
+  }
+
+  Future<void> _removeFirewallRule() async {
+    try {
+      await Process.run('netsh', [
+        'advfirewall',
+        'firewall',
+        'delete',
+        'rule',
+        'name=GamepadServerUDP',
+      ], runInShell: true);
+      _addLog('> Firewall rule removed');
+    } catch (_) {}
   }
 
   Future<void> _tearDownUsbTunnel() async {
