@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:typed_data';
 
+import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../core/packet_encoder.dart';
@@ -25,19 +26,38 @@ class PacketSender {
   bool      _running = false;
   bool      _fpsMode = false;
   int       _lastHz  = 0;
+  int       _sendCount = 0;
 
   PacketSender(this._ref);
 
   // ── Public ────────────────────────────────────────────────────────────────
 
-  void start()    { _fpsMode = false; _launch(); }
-  void startFps() { _fpsMode = true;  _launch(); }
+  bool get isRunning => _running;
+  bool get isFpsMode => _fpsMode;
+  int  get sendCount => _sendCount;
+
+  // ── Public ────────────────────────────────────────────────────────────────
+
+  void start() {
+    debugPrint('[PacketSender] start() called — CALLER TRACE:');
+    debugPrint(StackTrace.current.toString().split('\n').take(6).join('\n'));
+    _fpsMode = false; _launch();
+  }
+  void startFps() {
+    debugPrint('[PacketSender] startFps() called');
+    _fpsMode = true;  _launch();
+  }
 
   void stop() {
+    if (_running) {
+      debugPrint('[PacketSender] stop() called while RUNNING — CALLER TRACE:');
+      debugPrint(StackTrace.current.toString().split('\n').take(6).join('\n'));
+    }
     _running = false;
     _timer?.cancel();
     _timer  = null;
     _lastHz = 0;
+    _sendCount = 0;
   }
 
   void dispose() => stop();
@@ -47,6 +67,8 @@ class PacketSender {
   void _launch() {
     stop();
     _running = true;
+    _diagCount = 0;
+    debugPrint('[PacketSender] launched, fpsMode=$_fpsMode');
     _scheduleWithCurrentRate();
   }
 
@@ -68,16 +90,30 @@ class PacketSender {
     );
   }
 
+  int _diagCount = 0;
+
   void _tick() {
     final mode = _ref.read(connectionModeProvider);
     if (mode == ConnectionMode.usb) {
       final client = _ref.read(tcpClientProvider);
       if (client.status != ConnectionStatus.connected) return;
       client.send(_buildTcpPacket(client));
+      _sendCount++;
     } else {
       final udp = _ref.read(udpClientProvider);
-      if (!udp.isConnected) return;
-      udp.send(_buildUdpPayload(udp));
+      if (!udp.isConnected) {
+        if (_diagCount++ % 120 == 0) {
+          debugPrint('[PacketSender] WiFi tick: udp NOT connected, skipping');
+        }
+        return;
+      }
+      final payload = _buildUdpPayload(udp);
+      udp.send(payload);
+      _sendCount++;
+      if (_diagCount++ % 120 == 0) {
+        debugPrint('[PacketSender] WiFi tick: sent ${payload.length}B, '
+            'fpsMode=$_fpsMode, token=${udp.token}, pid=${udp.playerId}');
+      }
     }
   }
 

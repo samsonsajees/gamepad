@@ -13,35 +13,47 @@ import '../settings/settings_provider.dart';
 class ControllerState {
   final double leftTrigger;
   final double rightTrigger;
-  final int    buttons;
+  final int buttons;
   final double steeringAngle; // [-1, 1] mapped to left-stick X
   final double accelX, accelY, accelZ;
-  final double gyroX,  gyroY,  gyroZ;
+  final double gyroX, gyroY, gyroZ;
 
   const ControllerState({
-    this.leftTrigger   = 0,
-    this.rightTrigger  = 0,
-    this.buttons       = 0,
+    this.leftTrigger = 0,
+    this.rightTrigger = 0,
+    this.buttons = 0,
     this.steeringAngle = 0,
-    this.accelX = 0, this.accelY = 0, this.accelZ = 0,
-    this.gyroX  = 0, this.gyroY  = 0, this.gyroZ  = 0,
+    this.accelX = 0,
+    this.accelY = 0,
+    this.accelZ = 0,
+    this.gyroX = 0,
+    this.gyroY = 0,
+    this.gyroZ = 0,
   });
 
   ControllerState copyWith({
-    double? leftTrigger, double? rightTrigger, int? buttons,
+    double? leftTrigger,
+    double? rightTrigger,
+    int? buttons,
     double? steeringAngle,
-    double? accelX, double? accelY, double? accelZ,
-    double? gyroX,  double? gyroY,  double? gyroZ,
-  }) =>
-      ControllerState(
-        leftTrigger:   leftTrigger   ?? this.leftTrigger,
-        rightTrigger:  rightTrigger  ?? this.rightTrigger,
-        buttons:       buttons       ?? this.buttons,
-        steeringAngle: steeringAngle ?? this.steeringAngle,
-        accelX: accelX ?? this.accelX, accelY: accelY ?? this.accelY,
-        accelZ: accelZ ?? this.accelZ, gyroX:  gyroX  ?? this.gyroX,
-        gyroY:  gyroY  ?? this.gyroY,  gyroZ:  gyroZ  ?? this.gyroZ,
-      );
+    double? accelX,
+    double? accelY,
+    double? accelZ,
+    double? gyroX,
+    double? gyroY,
+    double? gyroZ,
+  }) => ControllerState(
+    leftTrigger: leftTrigger ?? this.leftTrigger,
+    rightTrigger: rightTrigger ?? this.rightTrigger,
+    buttons: buttons ?? this.buttons,
+    steeringAngle: steeringAngle ?? this.steeringAngle,
+    accelX: accelX ?? this.accelX,
+    accelY: accelY ?? this.accelY,
+    accelZ: accelZ ?? this.accelZ,
+    gyroX: gyroX ?? this.gyroX,
+    gyroY: gyroY ?? this.gyroY,
+    gyroZ: gyroZ ?? this.gyroZ,
+  );
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -50,7 +62,8 @@ class ControllerState {
 
 class ControllerStateNotifier extends Notifier<ControllerState> {
   StreamSubscription<AccelerometerEvent>? _accelSub;
-  StreamSubscription<GyroscopeEvent>?     _gyroSub;
+  StreamSubscription<GyroscopeEvent>? _gyroSub;
+  bool _sensorsRunning = false;
 
   // Low-pass filter state
   double _filtered = 0.0;
@@ -63,37 +76,54 @@ class ControllerStateNotifier extends Notifier<ControllerState> {
   }
 
   void _startSensors() {
-    _accelSub = accelerometerEventStream(
-      samplingPeriod: const Duration(milliseconds: 8),
-    ).listen((e) {
-      // Read current settings each sample so changes take effect immediately
-      final settings = ref.read(settingsProvider).valueOrNull;
-      final gRange = AppConstants.steeringGRange;
-      final dz     = settings?.steeringDeadzone    ?? AppConstants.steeringDeadzone;
-      final sens   = settings?.steeringSensitivity ?? 1.0;
+    _sensorsRunning = true;
+    _accelSub =
+        accelerometerEventStream(
+          samplingPeriod: const Duration(milliseconds: 8),
+        ).listen((e) {
+          // Read current settings each sample so changes take effect immediately
+          final settings = ref.read(settingsProvider).valueOrNull;
+          final gRange = AppConstants.steeringGRange;
+          final dz =
+              settings?.steeringDeadzone ?? AppConstants.steeringDeadzone;
+          final sens = settings?.steeringSensitivity ?? 1.0;
 
-      // Low-pass filter
-      final raw = -(e.y / gRange);
-      _filtered += _alpha * (raw - _filtered);
+          // Low-pass filter  (no negation — tilt right → positive)
+          final raw = e.y / gRange;
+          _filtered += _alpha * (raw - _filtered);
 
-      final steering = _applyDeadzoneSens(
-        _filtered.clamp(-1.0, 1.0), dz, sens,
-      );
+          final steering = _applyDeadzoneSens(
+            _filtered.clamp(-1.0, 1.0),
+            dz,
+            sens,
+          );
 
-      state = state.copyWith(
-        steeringAngle: steering,
-        accelX: e.x, accelY: e.y, accelZ: e.z,
-      );
-    });
+          state = state.copyWith(
+            steeringAngle: steering,
+            accelX: e.x,
+            accelY: e.y,
+            accelZ: e.z,
+          );
+        });
 
-    _gyroSub = gyroscopeEventStream(
-      samplingPeriod: const Duration(milliseconds: 8),
-    ).listen((e) {
-      state = state.copyWith(gyroX: e.x, gyroY: e.y, gyroZ: e.z);
-    });
+    _gyroSub =
+        gyroscopeEventStream(
+          samplingPeriod: const Duration(milliseconds: 8),
+        ).listen((e) {
+          state = state.copyWith(gyroX: e.x, gyroY: e.y, gyroZ: e.z);
+        });
+  }
+
+  /// Only restarts sensors if they were previously stopped.
+  /// Safe to call from initState — a no-op when sensors are already running.
+  void startSensors() {
+    if (_sensorsRunning)
+      return; // already running from build() — don't cancel/restart
+    _startSensors();
   }
 
   void stopSensors() {
+    _sensorsRunning = false;
     _accelSub?.cancel();
     _accelSub = null;
     _gyroSub?.cancel();
@@ -108,13 +138,17 @@ class ControllerStateNotifier extends Notifier<ControllerState> {
 
   // ── Widget API ────────────────────────────────────────────────────────────
 
-  void setLeftTrigger(double v)  => state = state.copyWith(leftTrigger:  v.clamp(0, 1));
-  void setRightTrigger(double v) => state = state.copyWith(rightTrigger: v.clamp(0, 1));
-  void pressButton(int mask)     => state = state.copyWith(buttons: state.buttons | mask);
-  void releaseButton(int mask)   => state = state.copyWith(buttons: state.buttons & ~mask);
+  void setLeftTrigger(double v) =>
+      state = state.copyWith(leftTrigger: v.clamp(0, 1));
+  void setRightTrigger(double v) =>
+      state = state.copyWith(rightTrigger: v.clamp(0, 1));
+  void pressButton(int mask) =>
+      state = state.copyWith(buttons: state.buttons | mask);
+  void releaseButton(int mask) =>
+      state = state.copyWith(buttons: state.buttons & ~mask);
 }
 
 final controllerStateProvider =
     NotifierProvider<ControllerStateNotifier, ControllerState>(
-  ControllerStateNotifier.new,
-);
+      ControllerStateNotifier.new,
+    );

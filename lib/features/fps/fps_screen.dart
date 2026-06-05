@@ -7,6 +7,7 @@ import '../../shared/theme.dart';
 import '../connection/connection_provider.dart';
 import '../connection/connection_screen.dart';
 import '../racing/packet_sender.dart';
+import '../racing/racing_screen.dart';
 import '../settings/settings_provider.dart';
 import '../settings/settings_screen.dart';
 import 'fps_providers.dart';
@@ -28,6 +29,7 @@ class _FpsScreenState extends ConsumerState<FpsScreen> {
     WidgetsBinding.instance.addPostFrameCallback((_) {
       _notifier = ref.read(fpsControllerProvider.notifier);
       _sender = ref.read(packetSenderProvider);
+      _notifier!.startSensors(); // always restart — notifier persists across navigations
       _sender!.startFps();
     });
   }
@@ -35,7 +37,10 @@ class _FpsScreenState extends ConsumerState<FpsScreen> {
   @override
   void dispose() {
     _notifier?.stopSensors();
-    _sender?.stop();
+    // NOTE: Do NOT stop the shared PacketSender here.
+    // dispose() runs AFTER the next screen's initState, so calling
+    // _sender?.stop() would kill the sender that was just restarted.
+    // Button handlers already stop it explicitly before navigating.
     super.dispose();
   }
 
@@ -56,6 +61,18 @@ class _FpsScreenState extends ConsumerState<FpsScreen> {
             child: Column(
               children: [
                 _FpsHeader(status: status, gyroOn: settings.gyroEnabled),
+                // ── Diagnostic: remove after debugging ──
+                Builder(builder: (_) {
+                  final s = ref.read(packetSenderProvider);
+                  return Text(
+                    'SENDER: ${s.isRunning ? "RUN" : "STOP"} '
+                    'fps=${s.isFpsMode} sent=${s.sendCount}',
+                    style: const TextStyle(
+                      fontFamily: 'monospace', fontSize: 9,
+                      color: Colors.yellow,
+                    ),
+                  );
+                }),
                 Expanded(
                   child: Padding(
                     padding: const EdgeInsets.fromLTRB(8, 4, 8, 8),
@@ -234,6 +251,16 @@ class _FpsHeader extends ConsumerWidget {
             ),
           ),
           const Spacer(),
+          // Switch to Racing layout
+          _IconBtn(
+            label: 'RACE',
+            onTap: () {
+              ref.read(packetSenderProvider).stop();
+              Navigator.pushReplacement(context,
+                MaterialPageRoute(builder: (_) => const RacingScreen()));
+            },
+          ),
+          const SizedBox(width: 6),
           // Settings
           _IconBtn(
             icon: Icons.settings_rounded,
@@ -500,20 +527,28 @@ class _Dot extends StatelessWidget {
 }
 
 class _IconBtn extends StatelessWidget {
-  final IconData icon;
+  final IconData?  icon;
+  final String?    label;
   final VoidCallback onTap;
-  const _IconBtn({required this.icon, required this.onTap});
+  const _IconBtn({this.icon, this.label, required this.onTap});
+
   @override
   Widget build(BuildContext context) => GestureDetector(
     onTap: onTap,
     child: Container(
-      width: 32, height: 32,
+      height: 32,
+      padding: const EdgeInsets.symmetric(horizontal: 10),
       decoration: BoxDecoration(
         color: AppTheme.card,
         borderRadius: BorderRadius.circular(6),
         border: Border.all(color: AppTheme.border),
       ),
-      child: Icon(icon, color: AppTheme.textSec, size: 15),
+      child: icon != null
+          ? Icon(icon, color: AppTheme.textSec, size: 15)
+          : Center(child: Text(label!, style: const TextStyle(
+              fontFamily: 'monospace', color: AppTheme.textSec,
+              fontSize: 10, fontWeight: FontWeight.w800, letterSpacing: 1.5,
+            ))),
     ),
   );
 }

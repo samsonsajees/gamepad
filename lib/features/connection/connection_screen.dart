@@ -5,6 +5,7 @@ import '../../core/constants.dart';
 import '../../core/tcp_client.dart';
 import '../../shared/theme.dart';
 import '../racing/racing_screen.dart';
+import 'connection_mode.dart';
 import 'connection_provider.dart';
 import 'wifi_connect_screen.dart';
 
@@ -40,13 +41,19 @@ class _ConnectionScreenState extends ConsumerState<ConnectionScreen>
     final connAsync = ref.watch(connectionNotifierProvider);
     final isLoading = connAsync.isLoading;
 
+    // Only navigate for USB connections — WifiConnectScreen has its own listener.
+    // Without this guard, WiFi connect triggers BOTH listeners, causing a double
+    // pushReplacement that disposes the first RacingScreen and kills sensors.
     ref.listen<AsyncValue<ConnectionStatus>>(
       connectionNotifierProvider,
       (_, next) {
         if (next.valueOrNull == ConnectionStatus.connected) {
-          Navigator.of(context).pushReplacement(
-            MaterialPageRoute(builder: (_) => const RacingScreen()),
-          );
+          final mode = ref.read(connectionModeProvider);
+          if (mode == ConnectionMode.usb) {
+            Navigator.of(context).pushReplacement(
+              MaterialPageRoute(builder: (_) => const RacingScreen()),
+            );
+          }
         }
         if (next.valueOrNull == ConnectionStatus.error) {
           setState(() => _errorMsg = 'Connection failed — is the server running?');

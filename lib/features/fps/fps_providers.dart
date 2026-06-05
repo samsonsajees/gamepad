@@ -73,6 +73,7 @@ class FpsControllerState {
 class FpsControllerNotifier extends Notifier<FpsControllerState> {
   StreamSubscription<AccelerometerEvent>? _accelSub;
   StreamSubscription<GyroscopeEvent>? _gyroSub;
+  bool _sensorsRunning = false;
 
   @override
   FpsControllerState build() {
@@ -81,6 +82,7 @@ class FpsControllerNotifier extends Notifier<FpsControllerState> {
   }
 
   void _startSensors() {
+    _sensorsRunning = true;
     _accelSub =
         accelerometerEventStream(
           samplingPeriod: const Duration(milliseconds: 8),
@@ -97,7 +99,15 @@ class FpsControllerNotifier extends Notifier<FpsControllerState> {
         });
   }
 
+  /// Only restarts sensors if they were previously stopped.
+  /// Safe to call from initState — no-op when sensors already running from build().
+  void startSensors() {
+    if (_sensorsRunning) return;
+    _startSensors();
+  }
+
   void stopSensors() {
+    _sensorsRunning = false;
     _accelSub?.cancel();
     _accelSub = null;
     _gyroSub?.cancel();

@@ -30,6 +30,7 @@ class _RacingScreenState extends ConsumerState<RacingScreen> {
     WidgetsBinding.instance.addPostFrameCallback((_) {
       _notifier = ref.read(controllerStateProvider.notifier);
       _sender = ref.read(packetSenderProvider);
+      _notifier!.startSensors(); // always restart — notifier persists across navigations
       _sender!.start();
     });
   }
@@ -37,7 +38,10 @@ class _RacingScreenState extends ConsumerState<RacingScreen> {
   @override
   void dispose() {
     _notifier?.stopSensors();
-    _sender?.stop();
+    // NOTE: Do NOT stop the shared PacketSender here.
+    // dispose() runs AFTER the next screen's initState, so calling
+    // _sender?.stop() would kill the FPS sender that was just started.
+    // Button handlers already stop it explicitly before navigating.
     super.dispose();
   }
 
