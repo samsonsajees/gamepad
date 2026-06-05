@@ -5,6 +5,7 @@ import '../../core/packet_encoder.dart';
 import '../../core/tcp_client.dart';
 import '../../shared/theme.dart';
 import '../connection/connection_provider.dart';
+import '../connection/connection_screen.dart';
 import '../racing/packet_sender.dart';
 import '../settings/settings_provider.dart';
 import '../settings/settings_screen.dart';
@@ -18,17 +19,23 @@ class FpsScreen extends ConsumerStatefulWidget {
 }
 
 class _FpsScreenState extends ConsumerState<FpsScreen> {
+  FpsControllerNotifier? _notifier;
+  PacketSender? _sender;
+
   @override
   void initState() {
     super.initState();
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      ref.read(packetSenderProvider).startFps();
+      _notifier = ref.read(fpsControllerProvider.notifier);
+      _sender = ref.read(packetSenderProvider);
+      _sender!.startFps();
     });
   }
 
   @override
   void dispose() {
-    ref.read(packetSenderProvider).stop();
+    _notifier?.stopSensors();
+    _sender?.stop();
     super.dispose();
   }
 
@@ -238,9 +245,14 @@ class _FpsHeader extends ConsumerWidget {
           _IconBtn(
             icon: Icons.close_rounded,
             onTap: () async {
+              ref.read(fpsControllerProvider.notifier).stopSensors();
               ref.read(packetSenderProvider).stop();
               await ref.read(connectionNotifierProvider.notifier).disconnect();
-              if (context.mounted) Navigator.of(context).pop();
+              if (context.mounted) {
+                Navigator.of(context).pushReplacement(
+                  MaterialPageRoute(builder: (_) => const ConnectionScreen()),
+                );
+              }
             },
           ),
         ],

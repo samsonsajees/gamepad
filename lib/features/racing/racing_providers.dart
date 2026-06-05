@@ -59,7 +59,6 @@ class ControllerStateNotifier extends Notifier<ControllerState> {
   @override
   ControllerState build() {
     _startSensors();
-    ref.onDispose(_stopSensors);
     return const ControllerState();
   }
 
@@ -94,9 +93,11 @@ class ControllerStateNotifier extends Notifier<ControllerState> {
     });
   }
 
-  void _stopSensors() {
+  void stopSensors() {
     _accelSub?.cancel();
+    _accelSub = null;
     _gyroSub?.cancel();
+    _gyroSub = null;
   }
 
   double _applyDeadzoneSens(double v, double dz, double sens) {
