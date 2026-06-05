@@ -3,34 +3,52 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../core/constants.dart';
 import '../../core/packet_encoder.dart';
 import '../../core/tcp_client.dart';
+import '../../core/udp_client.dart';
+import 'connection_mode.dart';
 
-// ── Singleton TCP client ───────────────────────────────────────────────────
+// ── Transport clients ─────────────────────────────────────────────────────────
 
 final tcpClientProvider = Provider<TcpClient>((ref) {
-  final client = TcpClient();
-  ref.onDispose(client.dispose);
-  return client;
+  final c = TcpClient();
+  ref.onDispose(c.dispose);
+  return c;
 });
 
-// ── Connection status stream ───────────────────────────────────────────────
+final udpClientProvider = Provider<UdpClient>((ref) {
+  final c = UdpClient();
+  ref.onDispose(c.dispose);
+  return c;
+});
+
+// ── Active mode ───────────────────────────────────────────────────────────────
+
+final connectionModeProvider =
+    StateProvider<ConnectionMode>((ref) => ConnectionMode.usb);
+
+// ── Status stream (whichever client is active) ────────────────────────────────
 
 final connectionStatusStreamProvider = StreamProvider<ConnectionStatus>((ref) {
-  return ref.watch(tcpClientProvider).statusStream;
+  final mode = ref.watch(connectionModeProvider);
+  return mode == ConnectionMode.usb
+      ? ref.watch(tcpClientProvider).statusStream
+      : ref.watch(udpClientProvider).statusStream;
 });
 
-// ── Notifier that drives connect / disconnect actions ─────────────────────
+// ── Unified notifier ──────────────────────────────────────────────────────────
 
 class ConnectionNotifier extends AsyncNotifier<ConnectionStatus> {
   @override
   Future<ConnectionStatus> build() async => ConnectionStatus.disconnected;
 
-  Future<bool> connect(String host, int port) async {
+  // ── USB / TCP ──────────────────────────────────────────────────────────────
+
+  Future<bool> connectUsb(String host, int port) async {
     state = const AsyncValue.loading();
     final client = ref.read(tcpClientProvider);
-    final ok = await client.connect(host, port);
+    final ok = await client.connect(host, port, autoReconnect: true);
 
     if (ok) {
-      // Send handshake immediately after TCP is open
+      ref.read(connectionModeProvider.notifier).state = ConnectionMode.usb;
       client.send(PacketEncoder.encodeHandshake(
         playerId:   AppConstants.defaultPlayerId,
         deviceName: 'Android Gamepad',
@@ -43,9 +61,37 @@ class ConnectionNotifier extends AsyncNotifier<ConnectionStatus> {
     return ok;
   }
 
+  // ── WiFi / UDP ─────────────────────────────────────────────────────────────
+
+  Future<bool> connectWifi(String host, int port, int token) async {
+    state = const AsyncValue.loading();
+    final udp = ref.read(udpClientProvider);
+    final ok  = await udp.connect(host, port, token);
+
+    if (ok) {
+      ref.read(connectionModeProvider.notifier).state = ConnectionMode.wifi;
+      // Send handshake so the server registers this player slot
+      udp.send(PacketEncoder.encodeUdpHandshake(
+        playerId:   AppConstants.defaultPlayerId,
+        deviceName: 'Android Gamepad',
+        layout:     AppConstants.layoutRacing,
+      ));
+      state = const AsyncValue.data(ConnectionStatus.connected);
+    } else {
+      state = const AsyncValue.data(ConnectionStatus.error);
+    }
+    return ok;
+  }
+
+  // ── Disconnect ─────────────────────────────────────────────────────────────
+
   Future<void> disconnect() async {
-    final client = ref.read(tcpClientProvider);
-    await client.disconnect();
+    final mode = ref.read(connectionModeProvider);
+    if (mode == ConnectionMode.usb) {
+      await ref.read(tcpClientProvider).disconnect();
+    } else {
+      await ref.read(udpClientProvider).disconnect();
+    }
     state = const AsyncValue.data(ConnectionStatus.disconnected);
   }
 }

@@ -22,6 +22,15 @@ dependencies:
   # Background keep-alive (Android)
   flutter_foreground_task: ^8.0.0
 
+  # Settings persistence
+  shared_preferences: ^2.3.3
+
+  # QR code display (Windows host)
+  qr_flutter: ^4.1.0
+
+  # QR code scanning (Android controller — WiFi pairing)
+  mobile_scanner: ^5.2.3
+
   cupertino_icons: ^1.0.8
 
 dev_dependencies:

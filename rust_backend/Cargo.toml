@@ -1,6 +1,6 @@
 [package]
 name        = "gamepad_server"
-version     = "0.1.0"
+version     = "0.2.0"
 edition     = "2021"
 description = "Windows backend for the Mobile Gamepad system"
 
@@ -9,7 +9,7 @@ name = "gamepad_server"
 path = "src/main.rs"
 
 [dependencies]
-tokio      = { version = "1",    features = ["full"] }
+tokio      = { version = "1", features = ["full"] }
 anyhow     = "1"
 log        = "0.4"
 env_logger = "0.10"

@@ -15,7 +15,8 @@ class GamepadApp extends StatelessWidget {
       title: 'Mobile Gamepad',
       theme: AppTheme.dark,
       debugShowCheckedModeBanner: false,
-      // Android → controller side,  Windows → host side
+      // Android  → controller side (connection → racing → fps)
+      // Windows  → host side
       home: Platform.isWindows
           ? const HostScreen()
           : const ConnectionScreen(),

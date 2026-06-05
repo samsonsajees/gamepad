@@ -1,17 +1,26 @@
+import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:qr_flutter/qr_flutter.dart';
 
 import '../../shared/theme.dart';
 
-// ── Server state providers ────────────────────────────────────────────────────
+// ── Server state ──────────────────────────────────────────────────────────────
 
-final _processProvider      = StateProvider<Process?>((ref) => null);
-final _serverStatusProvider = StateProvider<String>((ref) => 'stopped');
-final _playersProvider      = StateProvider<int>((ref) => 0);
-final _logsProvider         = StateProvider<List<String>>((ref) => []);
+final _processProvider = StateProvider<Process?>((ref) => null);
+final _statusProvider  = StateProvider<String>((ref) => 'stopped');
+final _playersProvider = StateProvider<int>((ref) => 0);
+final _logsProvider    = StateProvider<List<String>>((ref) => []);
+
+// Session info emitted by the Rust server on startup
+final _tcpPortProvider = StateProvider<int>((ref) => 5000);
+final _udpPortProvider = StateProvider<int>((ref) => 5001);
+final _tokenProvider   = StateProvider<int>((ref) => 0);
+final _localIpProvider = StateProvider<String>((ref) => '…');
 
 // ─────────────────────────────────────────────────────────────────────────────
 // HostScreen
@@ -19,49 +28,122 @@ final _logsProvider         = StateProvider<List<String>>((ref) => []);
 
 class HostScreen extends ConsumerStatefulWidget {
   const HostScreen({super.key});
-
   @override
   ConsumerState<HostScreen> createState() => _HostScreenState();
 }
 
-class _HostScreenState extends ConsumerState<HostScreen> {
+class _HostScreenState extends ConsumerState<HostScreen>
+    with SingleTickerProviderStateMixin {
+  late final TabController _tabs;
+
+  @override
+  void initState() {
+    super.initState();
+    _tabs = TabController(length: 2, vsync: this);
+    _detectLocalIp();
+  }
+
   @override
   void dispose() {
     ref.read(_processProvider)?.kill();
+    _tabs.dispose();
     super.dispose();
+  }
+
+  Future<void> _detectLocalIp() async {
+    try {
+      final ifaces = await NetworkInterface.list(
+        type: InternetAddressType.IPv4, includeLoopback: false,
+      );
+      for (final iface in ifaces) {
+        for (final addr in iface.addresses) {
+          if (!addr.isLoopback) {
+            ref.read(_localIpProvider.notifier).state = addr.address;
+            return;
+          }
+        }
+      }
+    } catch (_) {}
+    ref.read(_localIpProvider.notifier).state = 'Unknown';
   }
 
   @override
   Widget build(BuildContext context) {
-    final status  = ref.watch(_serverStatusProvider);
+    final status  = ref.watch(_statusProvider);
     final players = ref.watch(_playersProvider);
     final logs    = ref.watch(_logsProvider);
+    final token   = ref.watch(_tokenProvider);
+    final ip      = ref.watch(_localIpProvider);
+    final udpPort = ref.watch(_udpPortProvider);
 
     return Scaffold(
       backgroundColor: AppTheme.bg,
       body: Padding(
-        padding: const EdgeInsets.all(32),
+        padding: const EdgeInsets.all(28),
         child: Row(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            // ── Left: controls ───────────────────────────────────────
+            // ── Left panel ───────────────────────────────────────────
             SizedBox(
-              width: 300,
+              width: 290,
               child: _LeftPanel(
-                status: status,
-                players: players,
-                onStart: _startServer,
-                onStop:  _stopServer,
+                status: status, players: players,
+                onStart: _startServer, onStop: _stopServer,
               ),
             ),
             const SizedBox(width: 24),
-            // ── Right: slots + logs ──────────────────────────────────
+            // ── Right panel: tabs ────────────────────────────────────
             Expanded(
               child: Column(
                 children: [
-                  _PlayerSlots(active: players),
+                  // Tab bar
+                  Container(
+                    decoration: BoxDecoration(
+                      color: AppTheme.surface,
+                      borderRadius: BorderRadius.circular(8),
+                      border: Border.all(color: AppTheme.border),
+                    ),
+                    child: TabBar(
+                      controller: _tabs,
+                      indicator: BoxDecoration(
+                        color: AppTheme.accent,
+                        borderRadius: BorderRadius.circular(7),
+                      ),
+                      indicatorSize: TabBarIndicatorSize.tab,
+                      dividerColor: Colors.transparent,
+                      labelStyle: const TextStyle(
+                        fontFamily: 'monospace', fontSize: 10,
+                        fontWeight: FontWeight.w800, letterSpacing: 2,
+                      ),
+                      labelColor: Colors.white,
+                      unselectedLabelColor: AppTheme.textSec,
+                      tabs: const [
+                        Tab(icon: Icon(Icons.people_rounded, size: 15),
+                            text: 'PLAYERS'),
+                        Tab(icon: Icon(Icons.wifi_rounded, size: 15),
+                            text: 'WiFi'),
+                      ],
+                    ),
+                  ),
                   const SizedBox(height: 16),
-                  Expanded(child: _LogPanel(logs: logs)),
+                  Expanded(
+                    child: TabBarView(
+                      controller: _tabs,
+                      children: [
+                        // Players tab
+                        Column(children: [
+                          _PlayerSlots(active: players),
+                          const SizedBox(height: 16),
+                          Expanded(child: _LogPanel(logs: logs)),
+                        ]),
+                        // WiFi tab
+                        _WifiPanel(
+                          ip: ip, udpPort: udpPort, token: token,
+                          running: status == 'running',
+                        ),
+                      ],
+                    ),
+                  ),
                 ],
               ),
             ),
@@ -71,145 +153,65 @@ class _HostScreenState extends ConsumerState<HostScreen> {
     );
   }
 
-  // ── Helper methods ───────────────────────────────────────────────────────
-
-  Future<void> _killExistingServer() async {
-    try {
-      await Process.run(
-        'taskkill',
-        ['/IM', 'gamepad_server.exe', '/F'],
-      );
-      _addLog('> Cleared old gamepad_server.exe processes');
-    } catch (_) {}
-  }
-
-  Future<bool> _hasAndroidDevice() async {
-    try {
-      final result = await Process.run('adb', ['devices']);
-      final output = result.stdout.toString();
-
-      return output
-          .split('\n')
-          .any((line) => line.trim().endsWith('\tdevice'));
-    } catch (_) {
-      return false;
-    }
-  }
-
-  Future<void> _setupAdbReverse() async {
-    try {
-      await Process.run(
-        'adb',
-        ['reverse', '--remove', 'tcp:5000'],
-      );
-
-      final result = await Process.run(
-        'adb',
-        ['reverse', 'tcp:5000', 'tcp:5000'],
-      );
-
-      if (result.exitCode == 0) {
-        _addLog('> ADB reverse tunnel established');
-      } else {
-        _addLog('ERR: Failed to create ADB reverse');
-        _addLog(result.stderr.toString());
-      }
-    } catch (e) {
-      _addLog('ERR: ADB reverse failed: $e');
-    }
-  }
-
-  Future<void> _removeAdbReverse() async {
-    try {
-      await Process.run(
-        'adb',
-        ['reverse', '--remove', 'tcp:5000'],
-      );
-
-      _addLog('> ADB reverse removed');
-    } catch (_) {}
-  }
-
   // ── Server lifecycle ──────────────────────────────────────────────────────
 
   Future<void> _startServer() async {
-    _addLog('> Starting gamepad_server.exe ...');
-    ref.read(_serverStatusProvider.notifier).state = 'starting';
+    _addLog('> Starting gamepad_server.exe …');
+    ref.read(_statusProvider.notifier).state = 'starting';
 
     try {
-      await _killExistingServer();
-
-      final hasDevice = await _hasAndroidDevice();
-
-      if (!hasDevice) {
-        _addLog('ERR: No Android device detected');
-        _addLog('     Check USB cable and USB debugging');
-        ref.read(_serverStatusProvider.notifier).state = 'error';
-        return;
-      }
-
-      await _setupAdbReverse();
-
-      final exe =
-          '${Directory.current.path}\\rust_backend\\target\\release\\gamepad_server.exe';
-
+      final exe  = '${Directory.current.path}\\gamepad_server.exe';
       final proc = await Process.start(exe, []);
-
       ref.read(_processProvider.notifier).state = proc;
-      ref.read(_serverStatusProvider.notifier).state = 'running';
+      ref.read(_statusProvider.notifier).state  = 'running';
 
       proc.stdout
           .transform(utf8.decoder)
           .transform(const LineSplitter())
-          .listen((line) {
-        _addLog(line);
-
-        if (line.contains('"player_connected"')) {
-          ref.read(_playersProvider.notifier).state++;
-        } else if (line.contains('"player_disconnected"')) {
-          final c = ref.read(_playersProvider);
-          if (c > 0) {
-            ref.read(_playersProvider.notifier).state = c - 1;
-          }
-        }
-      });
+          .listen(_handleServerLine);
 
       proc.stderr
           .transform(utf8.decoder)
           .transform(const LineSplitter())
-          .listen((line) => _addLog('ERR: $line'));
+          .listen((l) => _addLog('ERR: $l'));
 
       proc.exitCode.then((code) {
-        ref.read(_serverStatusProvider.notifier).state =
-            code == 0 ? 'stopped' : 'error';
-
+        ref.read(_statusProvider.notifier).state  = code == 0 ? 'stopped' : 'error';
         ref.read(_processProvider.notifier).state = null;
         ref.read(_playersProvider.notifier).state = 0;
-
         _addLog('> Server exited (code $code)');
       });
     } catch (e) {
-      ref.read(_serverStatusProvider.notifier).state = 'error';
-      _addLog('ERR: $e');
+      ref.read(_statusProvider.notifier).state = 'error';
+      _addLog('ERR: Could not launch gamepad_server.exe');
+      _addLog('     Place it in the same folder as this app.');
     }
   }
 
-  Future<void> _stopServer() async {
+  void _handleServerLine(String line) {
+    _addLog(line);
     try {
-      ref.read(_processProvider)?.kill();
-
-      await _removeAdbReverse();
-
-      await Process.run(
-        'taskkill',
-        ['/IM', 'gamepad_server.exe', '/F'],
-      );
+      final json = jsonDecode(line) as Map<String, dynamic>;
+      switch (json['event']) {
+        case 'session_info':
+          ref.read(_tcpPortProvider.notifier).state = json['tcp_port'] as int;
+          ref.read(_udpPortProvider.notifier).state = json['udp_port'] as int;
+          ref.read(_tokenProvider.notifier).state   = json['token']    as int;
+        case 'player_connected':
+          ref.read(_playersProvider.notifier).state++;
+        case 'player_disconnected':
+          final c = ref.read(_playersProvider);
+          if (c > 0) ref.read(_playersProvider.notifier).state = c - 1;
+      }
     } catch (_) {}
+  }
 
+  void _stopServer() {
+    ref.read(_processProvider)?.kill();
     ref.read(_processProvider.notifier).state = null;
-    ref.read(_serverStatusProvider.notifier).state = 'stopped';
+    ref.read(_statusProvider.notifier).state  = 'stopped';
     ref.read(_playersProvider.notifier).state = 0;
-
+    ref.read(_tokenProvider.notifier).state   = 0;
     _addLog('> Server stopped');
   }
 
@@ -221,98 +223,75 @@ class _HostScreenState extends ConsumerState<HostScreen> {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Left panel
+// Left panel (server controls)
 // ─────────────────────────────────────────────────────────────────────────────
 
 class _LeftPanel extends StatelessWidget {
   final String   status;
   final int      players;
-  final VoidCallback onStart;
-  final VoidCallback onStop;
-
+  final VoidCallback onStart, onStop;
   const _LeftPanel({
-    required this.status,
-    required this.players,
-    required this.onStart,
-    required this.onStop,
+    required this.status, required this.players,
+    required this.onStart, required this.onStop,
   });
 
   @override
   Widget build(BuildContext context) {
     final running = status == 'running';
-
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        // Logo
-        Row(children: [
-          Container(width: 4, height: 44,
-              decoration: BoxDecoration(
-                color: AppTheme.accent,
-                borderRadius: BorderRadius.circular(2),
-              )),
-          const SizedBox(width: 12),
-          const Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text('GAMEPAD SERVER', style: TextStyle(
-                fontFamily: 'monospace', fontSize: 17,
-                fontWeight: FontWeight.w900, color: AppTheme.textPri,
-                letterSpacing: 2,
-              )),
-              Text('WINDOWS HOST', style: TextStyle(
-                fontFamily: 'monospace', fontSize: 10,
-                color: AppTheme.accent, letterSpacing: 2.5,
-              )),
-            ],
-          ),
+    return Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+      // Logo
+      Row(children: [
+        Container(width: 4, height: 44,
+            decoration: BoxDecoration(color: AppTheme.accent,
+                borderRadius: BorderRadius.circular(2))),
+        const SizedBox(width: 12),
+        const Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+          Text('GAMEPAD SERVER', style: TextStyle(
+            fontFamily: 'monospace', fontSize: 16,
+            fontWeight: FontWeight.w900, color: AppTheme.textPri,
+            letterSpacing: 2,
+          )),
+          Text('WINDOWS HOST', style: TextStyle(
+            fontFamily: 'monospace', fontSize: 10,
+            color: AppTheme.accent, letterSpacing: 2.5,
+          )),
         ]),
+      ]),
 
-        const SizedBox(height: 28),
+      const SizedBox(height: 24),
+      _StatusBadge(status: status),
+      const SizedBox(height: 14),
 
-        // Status badge
-        _StatusBadge(status: status),
-        const SizedBox(height: 16),
-
-        // Launch / stop button
-        SizedBox(
-          width: double.infinity,
-          height: 46,
-          child: ElevatedButton(
-            style: ElevatedButton.styleFrom(
-              backgroundColor: running ? AppTheme.card : AppTheme.accent,
-              foregroundColor: running ? AppTheme.textSec : Colors.white,
-              shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(6)),
-            ),
-            onPressed: running ? onStop : onStart,
-            child: Text(
-              running ? 'STOP SERVER' : 'START SERVER',
-              style: const TextStyle(
-                fontFamily: 'monospace',
-                fontWeight: FontWeight.w900,
-                letterSpacing: 2.5,
-                fontSize: 12,
-              ),
-            ),
+      SizedBox(
+        width: double.infinity, height: 46,
+        child: ElevatedButton(
+          style: ElevatedButton.styleFrom(
+            backgroundColor: running ? AppTheme.card : AppTheme.accent,
+            foregroundColor: running ? AppTheme.textSec : Colors.white,
+            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(6)),
           ),
+          onPressed: running ? onStop : onStart,
+          child: Text(running ? 'STOP SERVER' : 'START SERVER',
+            style: const TextStyle(fontFamily: 'monospace',
+                fontWeight: FontWeight.w900, letterSpacing: 2.5, fontSize: 12)),
         ),
+      ),
 
-        const SizedBox(height: 20),
-        _RequirementsBox(),
-      ],
-    );
+      const SizedBox(height: 24),
+      _UsbBox(),
+      const SizedBox(height: 16),
+      _RequirementsBox(),
+    ]);
   }
 }
 
 class _StatusBadge extends StatelessWidget {
   final String status;
   const _StatusBadge({required this.status});
-
   @override
   Widget build(BuildContext context) {
     final (color, label) = switch (status) {
-      'running'  => (AppTheme.green,  'RUNNING   · PORT 5000'),
+      'running'  => (AppTheme.green,  'RUNNING'),
       'starting' => (AppTheme.orange, 'STARTING …'),
       'error'    => (AppTheme.accent, 'ERROR'),
       _          => (AppTheme.textDim,'STOPPED'),
@@ -324,91 +303,188 @@ class _StatusBadge extends StatelessWidget {
       )),
       const SizedBox(width: 10),
       Text(label, style: TextStyle(
-        fontFamily: 'monospace', color: color,
-        fontSize: 12, fontWeight: FontWeight.w700, letterSpacing: 1.5,
+        fontFamily: 'monospace', color: color, fontSize: 12,
+        fontWeight: FontWeight.w700, letterSpacing: 1.5,
       )),
     ]);
   }
 }
 
+class _UsbBox extends StatelessWidget {
+  @override
+  Widget build(BuildContext context) {
+    return _Card(header: 'USB TUNNEL', child: Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        _CodeLine('adb reverse tcp:5000 tcp:5000'),
+        const SizedBox(height: 8),
+        const Text('Run after connecting USB cable',
+          style: TextStyle(fontFamily: 'monospace',
+              fontSize: 11, color: AppTheme.textDim)),
+      ],
+    ));
+  }
+}
+
 class _RequirementsBox extends StatelessWidget {
   @override
-  Widget build(BuildContext context) {
-    return _Card(
-      header: 'REQUIREMENTS',
-      child: Column(children: [
-        for (final r in const [
-          'ViGEmBus driver installed',
-          'gamepad_server.exe in same folder',
-          'ADB in system PATH',
-          'USB Debugging enabled on Android',
-        ])
-          _Req(r),
-      ]),
-    );
-  }
+  Widget build(BuildContext context) => _Card(header: 'REQUIREMENTS', child: Column(
+    children: [
+      for (final r in const [
+        'ViGEmBus driver installed',
+        'gamepad_server.exe in same folder',
+        'ADB in system PATH',
+        'USB Debugging on Android',
+      ])
+        Padding(
+          padding: const EdgeInsets.only(bottom: 7),
+          child: Row(children: [
+            const Icon(Icons.radio_button_unchecked, size: 11, color: AppTheme.border),
+            const SizedBox(width: 8),
+            Text(r, style: const TextStyle(fontFamily: 'monospace',
+                fontSize: 11, color: AppTheme.textDim)),
+          ]),
+        ),
+    ],
+  ));
 }
 
-class _Req extends StatelessWidget {
-  final String text;
-  const _Req(this.text);
-  @override
-  Widget build(BuildContext context) => Padding(
-    padding: const EdgeInsets.only(bottom: 7),
-    child: Row(children: [
-      const Icon(Icons.radio_button_unchecked, size: 11, color: AppTheme.border),
-      const SizedBox(width: 8),
-      Text(text, style: const TextStyle(fontFamily: 'monospace',
-          fontSize: 11, color: AppTheme.textDim)),
-    ]),
-  );
-}
+// ─────────────────────────────────────────────────────────────────────────────
+// WiFi tab — QR code + session token
+// ─────────────────────────────────────────────────────────────────────────────
 
-class _Card extends StatelessWidget {
-  final String  header;
-  final Widget  child;
-  const _Card({required this.header, required this.child});
+class _WifiPanel extends StatelessWidget {
+  final String ip;
+  final int    udpPort, token;
+  final bool   running;
+  const _WifiPanel({
+    required this.ip, required this.udpPort,
+    required this.token, required this.running,
+  });
+
+  String get _qrData => 'gamepad://$ip:$udpPort?token=$token';
 
   @override
   Widget build(BuildContext context) {
-    return Container(
-      width: double.infinity,
-      padding: const EdgeInsets.all(14),
-      decoration: BoxDecoration(
-        color: AppTheme.surface,
-        borderRadius: BorderRadius.circular(8),
-        border: Border.all(color: AppTheme.border),
+    if (!running || token == 0) {
+      return Center(child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          const Icon(Icons.wifi_off_rounded, color: AppTheme.textDim, size: 40),
+          const SizedBox(height: 12),
+          const Text('Start the server to generate\na WiFi QR code.',
+            textAlign: TextAlign.center,
+            style: TextStyle(fontFamily: 'monospace',
+                color: AppTheme.textDim, fontSize: 13, height: 1.6)),
+        ],
+      ));
+    }
+
+    return Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
+      // QR code
+      Container(
+        padding: const EdgeInsets.all(16),
+        decoration: BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.circular(12),
+        ),
+        child: QrImageView(
+          data: _qrData,
+          version: QrVersions.auto,
+          size: 180,
+          backgroundColor: Colors.white,
+          eyeStyle: const QrEyeStyle(
+            eyeShape: QrEyeShape.square,
+            color: Colors.black,
+          ),
+          dataModuleStyle: const QrDataModuleStyle(
+            dataModuleShape: QrDataModuleShape.square,
+            color: Colors.black,
+          ),
+        ),
       ),
-      child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-        Text(header, style: const TextStyle(
-          fontFamily: 'monospace', fontSize: 10,
-          color: AppTheme.textDim, letterSpacing: 2,
-        )),
-        const SizedBox(height: 12),
-        child,
-      ]),
-    );
+      const SizedBox(width: 24),
+
+      // Connection details
+      Expanded(
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Text('WIFI CONNECTION', style: TextStyle(
+              fontFamily: 'monospace', fontSize: 10,
+              color: AppTheme.textDim, letterSpacing: 2.5,
+            )),
+            const SizedBox(height: 16),
+            _InfoRow(label: 'PC IP',   value: ip),
+            _InfoRow(label: 'UDP PORT', value: '$udpPort'),
+            _InfoRow(label: 'TOKEN',    value: '$token', copyable: true),
+            const SizedBox(height: 20),
+            Container(
+              padding: const EdgeInsets.all(12),
+              decoration: BoxDecoration(
+                color: AppTheme.green.withOpacity(0.08),
+                borderRadius: BorderRadius.circular(8),
+                border: Border.all(color: AppTheme.green.withOpacity(0.3)),
+              ),
+              child: const Text(
+                '1. Both devices on the same WiFi\n'
+                '2. Scan QR code in the Android app\n'
+                '   (WiFi tab → Scan QR Code)\n'
+                '3. Or enter IP + Token manually',
+                style: TextStyle(
+                  fontFamily: 'monospace', fontSize: 11,
+                  color: AppTheme.textSec, height: 1.7,
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
+    ]);
   }
 }
 
-class _CodeLine extends StatelessWidget {
-  final String code;
-  const _CodeLine(this.code);
+class _InfoRow extends StatelessWidget {
+  final String label, value;
+  final bool   copyable;
+  const _InfoRow({required this.label, required this.value, this.copyable = false});
+
   @override
-  Widget build(BuildContext context) => Container(
-    padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 7),
-    decoration: BoxDecoration(
-      color: AppTheme.bg,
-      borderRadius: BorderRadius.circular(4),
-      border: Border.all(color: AppTheme.border),
-    ),
-    child: Row(children: [
-      const Text('> ', style: TextStyle(
-          color: AppTheme.accent, fontFamily: 'monospace', fontSize: 12)),
-      Text(code, style: const TextStyle(
-          fontFamily: 'monospace', fontSize: 12, color: AppTheme.textSec)),
-    ]),
-  );
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 10),
+      child: Row(children: [
+        SizedBox(
+          width: 80,
+          child: Text(label, style: const TextStyle(
+            fontFamily: 'monospace', fontSize: 10,
+            color: AppTheme.textDim, letterSpacing: 1.5,
+          )),
+        ),
+        Expanded(
+          child: Container(
+            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+            decoration: BoxDecoration(
+              color: AppTheme.card, borderRadius: BorderRadius.circular(5),
+              border: Border.all(color: AppTheme.border),
+            ),
+            child: Text(value, style: const TextStyle(
+              fontFamily: 'monospace', fontSize: 13,
+              color: AppTheme.textPri, fontWeight: FontWeight.w700,
+            )),
+          ),
+        ),
+        if (copyable) ...[
+          const SizedBox(width: 8),
+          GestureDetector(
+            onTap: () => Clipboard.setData(ClipboardData(text: value)),
+            child: const Icon(Icons.copy_rounded,
+                size: 16, color: AppTheme.textDim),
+          ),
+        ],
+      ]),
+    );
+  }
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -421,45 +497,30 @@ class _PlayerSlots extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.all(16),
-      decoration: BoxDecoration(
-        color: AppTheme.surface,
-        borderRadius: BorderRadius.circular(8),
-        border: Border.all(color: AppTheme.border),
-      ),
-      child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-        const Text('PLAYER SLOTS', style: TextStyle(
-          fontFamily: 'monospace', fontSize: 10,
-          color: AppTheme.textDim, letterSpacing: 2,
-        )),
-        const SizedBox(height: 12),
-        Row(
-          children: List.generate(4, (i) {
-            final on = i < active;
-            return Expanded(child: Container(
-              margin: const EdgeInsets.only(right: 8),
-              height: 60,
-              decoration: BoxDecoration(
-                color: on ? AppTheme.accent.withOpacity(0.12) : AppTheme.card,
-                borderRadius: BorderRadius.circular(6),
-                border: Border.all(
-                  color: on ? AppTheme.accent : AppTheme.border,
-                ),
-              ),
-              child: Column(mainAxisAlignment: MainAxisAlignment.center, children: [
-                Icon(on ? Icons.sports_esports : Icons.add_rounded,
-                    size: 18, color: on ? AppTheme.accent : AppTheme.border),
-                const SizedBox(height: 4),
-                Text('P${i + 1}', style: TextStyle(
-                  fontFamily: 'monospace', fontSize: 11, fontWeight: FontWeight.w800,
-                  color: on ? AppTheme.accent : AppTheme.border,
-                )),
-              ]),
-            ));
-          }),
-        ),
-      ]),
+    return _Card(
+      header: 'PLAYER SLOTS',
+      child: Row(children: List.generate(4, (i) {
+        final on = i < active;
+        return Expanded(child: Container(
+          margin: const EdgeInsets.only(right: 8),
+          height: 58,
+          decoration: BoxDecoration(
+            color: on ? AppTheme.accent.withOpacity(0.12) : AppTheme.card,
+            borderRadius: BorderRadius.circular(6),
+            border: Border.all(color: on ? AppTheme.accent : AppTheme.border),
+          ),
+          child: Column(mainAxisAlignment: MainAxisAlignment.center, children: [
+            Icon(on ? Icons.sports_esports : Icons.add_rounded,
+                size: 18, color: on ? AppTheme.accent : AppTheme.border),
+            const SizedBox(height: 4),
+            Text('P${i + 1}', style: TextStyle(
+              fontFamily: 'monospace', fontSize: 11,
+              fontWeight: FontWeight.w800,
+              color: on ? AppTheme.accent : AppTheme.border,
+            )),
+          ]),
+        ));
+      })),
     );
   }
 }
@@ -481,7 +542,6 @@ class _LogPanel extends ConsumerWidget {
         border: Border.all(color: AppTheme.border),
       ),
       child: Column(children: [
-        // Header
         Padding(
           padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
           child: Row(children: [
@@ -491,35 +551,78 @@ class _LogPanel extends ConsumerWidget {
             )),
             const Spacer(),
             GestureDetector(
-              onTap: () =>
-                  ref.read(_logsProvider.notifier).state = [],
+              onTap: () => ref.read(_logsProvider.notifier).state = [],
               child: const Text('CLEAR', style: TextStyle(
-                fontFamily: 'monospace', fontSize: 10,
-                color: AppTheme.textDim, letterSpacing: 1,
+                fontFamily: 'monospace', fontSize: 10, color: AppTheme.textDim,
               )),
             ),
           ]),
         ),
         Container(height: 1, color: AppTheme.border),
-        // Lines (newest at bottom)
         Expanded(
           child: ListView.builder(
             padding: const EdgeInsets.all(12),
             itemCount: logs.length,
-            itemBuilder: (ctx, i) {
+            itemBuilder: (_, i) {
               final l = logs[i];
               Color c = AppTheme.textDim;
-              if (l.startsWith('ERR')) c = AppTheme.accent;
-              else if (l.contains('connected'))   c = AppTheme.green;
-              else if (l.contains('disconnected'))c = AppTheme.orange;
-              else if (l.startsWith('>'))         c = AppTheme.textSec;
+              if (l.startsWith('ERR'))         c = AppTheme.accent;
+              else if (l.contains('"player_connected"'))    c = AppTheme.green;
+              else if (l.contains('"player_disconnected"')) c = AppTheme.orange;
+              else if (l.startsWith('>'))       c = AppTheme.textSec;
               return Text(l, style: TextStyle(
-                fontFamily: 'monospace', fontSize: 11, color: c, height: 1.6,
-              ));
+                fontFamily: 'monospace', fontSize: 11, color: c, height: 1.6));
             },
           ),
         ),
       ]),
     );
   }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Shared widgets
+// ─────────────────────────────────────────────────────────────────────────────
+
+class _Card extends StatelessWidget {
+  final String header;
+  final Widget child;
+  const _Card({required this.header, required this.child});
+
+  @override
+  Widget build(BuildContext context) => Container(
+    width: double.infinity,
+    padding: const EdgeInsets.all(14),
+    decoration: BoxDecoration(
+      color: AppTheme.surface, borderRadius: BorderRadius.circular(8),
+      border: Border.all(color: AppTheme.border),
+    ),
+    child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+      Text(header, style: const TextStyle(
+        fontFamily: 'monospace', fontSize: 10,
+        color: AppTheme.textDim, letterSpacing: 2,
+      )),
+      const SizedBox(height: 12),
+      child,
+    ]),
+  );
+}
+
+class _CodeLine extends StatelessWidget {
+  final String code;
+  const _CodeLine(this.code);
+  @override
+  Widget build(BuildContext context) => Container(
+    padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 7),
+    decoration: BoxDecoration(
+      color: AppTheme.bg, borderRadius: BorderRadius.circular(4),
+      border: Border.all(color: AppTheme.border),
+    ),
+    child: Row(children: [
+      const Text('> ', style: TextStyle(
+          color: AppTheme.accent, fontFamily: 'monospace', fontSize: 12)),
+      Text(code, style: const TextStyle(
+          fontFamily: 'monospace', fontSize: 12, color: AppTheme.textSec)),
+    ]),
+  );
 }

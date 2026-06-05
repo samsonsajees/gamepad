@@ -1,40 +1,34 @@
 import 'dart:async';
-import 'dart:math' as math;
 
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:sensors_plus/sensors_plus.dart';
 
 import '../../core/constants.dart';
+import '../settings/settings_provider.dart';
 
 // ─────────────────────────────────────────────────────────────────────────────
-// ControllerState  –  immutable snapshot of every axis / button
+// ControllerState
 // ─────────────────────────────────────────────────────────────────────────────
 
 class ControllerState {
-  final double leftTrigger;  // 0–1  (brake)
-  final double rightTrigger; // 0–1  (throttle)
-  final int    buttons;      // bitmask
-
-  // Derived from accelerometer — used as left-stick X (steering)
-  final double steeringAngle; // -1 … 1
-
-  // Raw sensor values forwarded to server for game-side processing
+  final double leftTrigger;
+  final double rightTrigger;
+  final int    buttons;
+  final double steeringAngle; // [-1, 1] mapped to left-stick X
   final double accelX, accelY, accelZ;
   final double gyroX,  gyroY,  gyroZ;
 
   const ControllerState({
-    this.leftTrigger   = 0.0,
-    this.rightTrigger  = 0.0,
+    this.leftTrigger   = 0,
+    this.rightTrigger  = 0,
     this.buttons       = 0,
-    this.steeringAngle = 0.0,
+    this.steeringAngle = 0,
     this.accelX = 0, this.accelY = 0, this.accelZ = 0,
     this.gyroX  = 0, this.gyroY  = 0, this.gyroZ  = 0,
   });
 
   ControllerState copyWith({
-    double? leftTrigger,
-    double? rightTrigger,
-    int?    buttons,
+    double? leftTrigger, double? rightTrigger, int? buttons,
     double? steeringAngle,
     double? accelX, double? accelY, double? accelZ,
     double? gyroX,  double? gyroY,  double? gyroZ,
@@ -51,7 +45,7 @@ class ControllerState {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// ControllerStateNotifier
+// Notifier
 // ─────────────────────────────────────────────────────────────────────────────
 
 class ControllerStateNotifier extends Notifier<ControllerState> {
@@ -59,8 +53,8 @@ class ControllerStateNotifier extends Notifier<ControllerState> {
   StreamSubscription<GyroscopeEvent>?     _gyroSub;
 
   // Low-pass filter state
-  double _filteredSteering = 0.0;
-  static const double _alpha = 0.25; // smaller = smoother but more lag
+  double _filtered = 0.0;
+  static const double _alpha = 0.25;
 
   @override
   ControllerState build() {
@@ -69,19 +63,23 @@ class ControllerStateNotifier extends Notifier<ControllerState> {
     return const ControllerState();
   }
 
-  // ── Sensor streaming ────────────────────────────────────────────────────
-
   void _startSensors() {
-    // Accelerometer → steering
-    // In landscape mode, gravity shifts along the Y-axis when the phone tilts
-    // left/right. Dividing by gRange normalises ~±6.5 m/s² to ±1.
     _accelSub = accelerometerEventStream(
-      samplingPeriod: const Duration(milliseconds: 8), // ~120 Hz
+      samplingPeriod: const Duration(milliseconds: 8),
     ).listen((e) {
-      // Low-pass filter to smooth jitter
-      final raw = (e.y / AppConstants.steeringGRange); // negate: tilt right → positive
-      _filteredSteering += _alpha * (raw - _filteredSteering);
-      final steering = _applyDeadzone(_filteredSteering.clamp(-1.0, 1.0));
+      // Read current settings each sample so changes take effect immediately
+      final settings = ref.read(settingsProvider).valueOrNull;
+      final gRange = AppConstants.steeringGRange;
+      final dz     = settings?.steeringDeadzone    ?? AppConstants.steeringDeadzone;
+      final sens   = settings?.steeringSensitivity ?? 1.0;
+
+      // Low-pass filter
+      final raw = -(e.y / gRange);
+      _filtered += _alpha * (raw - _filtered);
+
+      final steering = _applyDeadzoneSens(
+        _filtered.clamp(-1.0, 1.0), dz, sens,
+      );
 
       state = state.copyWith(
         steeringAngle: steering,
@@ -89,7 +87,6 @@ class ControllerStateNotifier extends Notifier<ControllerState> {
       );
     });
 
-    // Gyroscope → forwarded raw to server for aiming / fine corrections
     _gyroSub = gyroscopeEventStream(
       samplingPeriod: const Duration(milliseconds: 8),
     ).listen((e) {
@@ -102,22 +99,18 @@ class ControllerStateNotifier extends Notifier<ControllerState> {
     _gyroSub?.cancel();
   }
 
-  // ── Helpers ──────────────────────────────────────────────────────────────
-
-  double _applyDeadzone(double v) {
-    const dz = AppConstants.steeringDeadzone;
+  double _applyDeadzoneSens(double v, double dz, double sens) {
     if (v.abs() < dz) return 0.0;
-    final sign = v.sign;
-    return sign * (v.abs() - dz) / (1.0 - dz);
+    final normalized = (v.abs() - dz) / (1.0 - dz) * v.sign;
+    return (normalized * sens).clamp(-1.0, 1.0);
   }
 
-  // ── Controller API (called by widgets) ───────────────────────────────────
+  // ── Widget API ────────────────────────────────────────────────────────────
 
-  void setLeftTrigger(double v)  => state = state.copyWith(leftTrigger:  v.clamp(0.0, 1.0));
-  void setRightTrigger(double v) => state = state.copyWith(rightTrigger: v.clamp(0.0, 1.0));
-
-  void pressButton(int mask)   => state = state.copyWith(buttons: state.buttons | mask);
-  void releaseButton(int mask) => state = state.copyWith(buttons: state.buttons & ~mask);
+  void setLeftTrigger(double v)  => state = state.copyWith(leftTrigger:  v.clamp(0, 1));
+  void setRightTrigger(double v) => state = state.copyWith(rightTrigger: v.clamp(0, 1));
+  void pressButton(int mask)     => state = state.copyWith(buttons: state.buttons | mask);
+  void releaseButton(int mask)   => state = state.copyWith(buttons: state.buttons & ~mask);
 }
 
 final controllerStateProvider =
