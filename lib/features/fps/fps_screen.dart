@@ -7,6 +7,8 @@ import '../../core/tcp_client.dart';
 import '../../shared/theme.dart';
 import '../connection/connection_provider.dart';
 import '../connection/connection_screen.dart';
+import '../layout/draggable_element.dart';
+import '../layout/layout_provider.dart';
 import '../racing/packet_sender.dart';
 import '../racing/racing_screen.dart';
 import '../settings/settings_provider.dart';
@@ -70,6 +72,8 @@ class _FpsScreenState extends ConsumerState<FpsScreen> {
             child: Column(
               children: [
                 _FpsHeader(status: status, gyroOn: settings.gyroEnabled),
+                // Hint banner — visible only in edit mode
+                const EditModeBanner(screenId: 'fps'),
                 // ── Diagnostic: remove after debugging ──
                 Builder(builder: (_) {
                   final s = ref.read(packetSenderProvider);
@@ -101,36 +105,42 @@ class _FpsScreenState extends ConsumerState<FpsScreen> {
 
     return Row(
       children: [
-        // ── LEFT column: shoulder buttons + left joystick ──────────────────
+        // ── LEFT column: shoulder buttons + left joystick ──────────────────────
         SizedBox(
           width: 130,
           child: Column(
             children: [
               // LB / LT row
-              Row(children: [
-                _ShoulderBtn(
-                  label: 'LB',
-                  onDown:  () => n.pressButton(PacketEncoder.btnLB),
-                  onUp:    () => n.releaseButton(PacketEncoder.btnLB),
-                ),
-                const SizedBox(width: 6),
-                Expanded(child: _TriggerBar(
-                  label: 'LT',
-                  value: ctrl.leftTrigger,
-                  color: AppTheme.blue,
-                  onChanged: n.setLeftTrigger,
-                )),
-              ]),
+              DraggableElement(
+                id: 'lb_lt', screenId: 'fps', label: 'LB / LT',
+                child: Row(children: [
+                  _ShoulderBtn(
+                    label: 'LB',
+                    onDown:  () => n.pressButton(PacketEncoder.btnLB),
+                    onUp:    () => n.releaseButton(PacketEncoder.btnLB),
+                  ),
+                  const SizedBox(width: 6),
+                  Expanded(child: _TriggerBar(
+                    label: 'LT',
+                    value: ctrl.leftTrigger,
+                    color: AppTheme.blue,
+                    onChanged: n.setLeftTrigger,
+                  )),
+                ]),
+              ),
               const SizedBox(height: 12),
               // Left stick — movement
               Expanded(
                 child: Center(
-                  child: JoystickWidget(
-                    size: 110,
-                    deadzone: settings.joystickDeadzone,
-                    label: 'MOVE',
-                    color: AppTheme.blue,
-                    onChanged: n.setLeftStick,
+                  child: DraggableElement(
+                    id: 'left_stick', screenId: 'fps', label: 'LEFT STICK',
+                    child: JoystickWidget(
+                      size: 110,
+                      deadzone: settings.joystickDeadzone,
+                      label: 'MOVE',
+                      color: AppTheme.blue,
+                      onChanged: n.setLeftStick,
+                    ),
                   ),
                 ),
               ),
@@ -138,69 +148,84 @@ class _FpsScreenState extends ConsumerState<FpsScreen> {
           ),
         ),
 
-        // ── CENTER: back/start + d-pad ─────────────────────────────────────
+        // ── CENTER: back/start + d-pad ───────────────────────────────────
         Expanded(
           child: Column(
             mainAxisAlignment: MainAxisAlignment.spaceEvenly,
             children: [
-              Row(
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: [
-                  _SmallBtn(
-                    label: 'BACK',
-                    onDown:  () => n.pressButton(PacketEncoder.btnBack),
-                    onUp:    () => n.releaseButton(PacketEncoder.btnBack),
-                  ),
-                  const SizedBox(width: 14),
-                  _SmallBtn(
-                    label: 'START',
-                    onDown:  () => n.pressButton(PacketEncoder.btnStart),
-                    onUp:    () => n.releaseButton(PacketEncoder.btnStart),
-                  ),
-                ],
+              DraggableElement(
+                id: 'back_start', screenId: 'fps', label: 'BACK / START',
+                child: Row(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    _SmallBtn(
+                      label: 'BACK',
+                      onDown:  () => n.pressButton(PacketEncoder.btnBack),
+                      onUp:    () => n.releaseButton(PacketEncoder.btnBack),
+                    ),
+                    const SizedBox(width: 14),
+                    _SmallBtn(
+                      label: 'START',
+                      onDown:  () => n.pressButton(PacketEncoder.btnStart),
+                      onUp:    () => n.releaseButton(PacketEncoder.btnStart),
+                    ),
+                  ],
+                ),
               ),
-              _DPad(n: n),
+              DraggableElement(
+                id: 'dpad', screenId: 'fps', label: 'D-PAD',
+                child: _DPad(n: n),
+              ),
             ],
           ),
         ),
 
-        // ── RIGHT column: face buttons + right joystick / gyro ─────────────
+        // ── RIGHT column: face buttons + right joystick / gyro ──────────────
         SizedBox(
           width: 130,
           child: Column(
             children: [
               // RB / RT row
-              Row(children: [
-                Expanded(child: _TriggerBar(
-                  label: 'RT',
-                  value: ctrl.rightTrigger,
-                  color: AppTheme.accent,
-                  onChanged: n.setRightTrigger,
-                )),
-                const SizedBox(width: 6),
-                _ShoulderBtn(
-                  label: 'RB',
-                  onDown:  () => n.pressButton(PacketEncoder.btnRB),
-                  onUp:    () => n.releaseButton(PacketEncoder.btnRB),
-                ),
-              ]),
+              DraggableElement(
+                id: 'rb_rt', screenId: 'fps', label: 'RB / RT',
+                child: Row(children: [
+                  Expanded(child: _TriggerBar(
+                    label: 'RT',
+                    value: ctrl.rightTrigger,
+                    color: AppTheme.accent,
+                    onChanged: n.setRightTrigger,
+                  )),
+                  const SizedBox(width: 6),
+                  _ShoulderBtn(
+                    label: 'RB',
+                    onDown:  () => n.pressButton(PacketEncoder.btnRB),
+                    onUp:    () => n.releaseButton(PacketEncoder.btnRB),
+                  ),
+                ]),
+              ),
               const SizedBox(height: 12),
               // Face buttons (ABXY) + right stick
               Expanded(
                 child: Column(
                   mainAxisAlignment: MainAxisAlignment.spaceEvenly,
                   children: [
-                    _FaceButtons(n: n),
-                    if (!settings.gyroEnabled)
-                      JoystickWidget(
-                        size: 90,
-                        deadzone: settings.joystickDeadzone,
-                        label: 'AIM',
-                        color: AppTheme.accent,
-                        onChanged: n.setRightStick,
-                      )
-                    else
-                      _GyroIndicator(x: ctrl.rightX, y: ctrl.rightY),
+                    DraggableElement(
+                      id: 'face_buttons', screenId: 'fps', label: 'ABXY',
+                      child: _FaceButtons(n: n),
+                    ),
+                    DraggableElement(
+                      id: 'right_stick', screenId: 'fps',
+                      label: settings.gyroEnabled ? 'GYRO' : 'RIGHT STICK',
+                      child: settings.gyroEnabled
+                          ? _GyroIndicator(x: ctrl.rightX, y: ctrl.rightY)
+                          : JoystickWidget(
+                              size: 90,
+                              deadzone: settings.joystickDeadzone,
+                              label: 'AIM',
+                              color: AppTheme.accent,
+                              onChanged: n.setRightStick,
+                            ),
+                    ),
                   ],
                 ),
               ),
@@ -228,6 +253,7 @@ class _FpsHeader extends ConsumerWidget {
       ConnectionStatus.connecting => AppTheme.orange,
       _                           => AppTheme.textDim,
     };
+    final editMode = ref.watch(editModeProvider('fps'));
 
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
@@ -260,25 +286,33 @@ class _FpsHeader extends ConsumerWidget {
             ),
           ),
           const Spacer(),
-          // Switch to Racing layout
+          // Edit / Done toggle
           _IconBtn(
-            label: 'RACE',
-            onTap: () {
-              ref.read(packetSenderProvider).stop();
-              Navigator.pushReplacement(context,
-                MaterialPageRoute(builder: (_) => const RacingScreen()));
-            },
+            label: editMode ? 'DONE' : 'EDIT',
+            accent: editMode ? AppTheme.green : null,
+            onTap: () => ref
+                .read(editModeProvider('fps').notifier)
+                .state = !editMode,
           ),
           const SizedBox(width: 6),
+          // Switch to Racing layout (hidden in edit mode)
+          if (!editMode) ...[  
+            _IconBtn(
+              label: 'RACE',
+              onTap: () {
+                ref.read(packetSenderProvider).stop();
+                Navigator.pushReplacement(context,
+                  MaterialPageRoute(builder: (_) => const RacingScreen()));
+              },
+            ),
+            const SizedBox(width: 6),
+          ],
           // Settings
           _IconBtn(
             icon: Icons.settings_rounded,
             onTap: () async {
               await Navigator.push(context,
                 MaterialPageRoute(builder: (_) => const SettingsScreen()));
-              // Settings was shown in portrait on top of this landscape screen.
-              // Re-lock landscape now that we're back (initState won't re-run
-              // because this screen was never disposed).
               await SystemChrome.setPreferredOrientations([
                 DeviceOrientation.landscapeLeft,
                 DeviceOrientation.landscapeRight,
@@ -286,25 +320,25 @@ class _FpsHeader extends ConsumerWidget {
             },
           ),
           const SizedBox(width: 6),
-          // Close / disconnect
-          _IconBtn(
-            icon: Icons.close_rounded,
-            onTap: () async {
-              ref.read(fpsControllerProvider.notifier).stopSensors();
-              ref.read(packetSenderProvider).stop();
-              await ref.read(connectionNotifierProvider.notifier).disconnect();
-              // Restore portrait now that we're leaving all gamepad screens
-              await SystemChrome.setPreferredOrientations([
-                DeviceOrientation.portraitUp,
-                DeviceOrientation.portraitDown,
-              ]);
-              if (context.mounted) {
-                Navigator.of(context).pushReplacement(
-                  MaterialPageRoute(builder: (_) => const ConnectionScreen()),
-                );
-              }
-            },
-          ),
+          // Close / disconnect (hidden in edit mode)
+          if (!editMode)
+            _IconBtn(
+              icon: Icons.close_rounded,
+              onTap: () async {
+                ref.read(fpsControllerProvider.notifier).stopSensors();
+                ref.read(packetSenderProvider).stop();
+                await ref.read(connectionNotifierProvider.notifier).disconnect();
+                await SystemChrome.setPreferredOrientations([
+                  DeviceOrientation.portraitUp,
+                  DeviceOrientation.portraitDown,
+                ]);
+                if (context.mounted) {
+                  Navigator.of(context).pushReplacement(
+                    MaterialPageRoute(builder: (_) => const ConnectionScreen()),
+                  );
+                }
+              },
+            ),
         ],
       ),
     );
@@ -550,10 +584,11 @@ class _Dot extends StatelessWidget {
 }
 
 class _IconBtn extends StatelessWidget {
-  final IconData?  icon;
-  final String?    label;
+  final IconData?    icon;
+  final String?      label;
   final VoidCallback onTap;
-  const _IconBtn({this.icon, this.label, required this.onTap});
+  final Color?       accent; // optional tint for active state
+  const _IconBtn({this.icon, this.label, required this.onTap, this.accent});
 
   @override
   Widget build(BuildContext context) => GestureDetector(
@@ -562,14 +597,14 @@ class _IconBtn extends StatelessWidget {
       height: 32,
       padding: const EdgeInsets.symmetric(horizontal: 10),
       decoration: BoxDecoration(
-        color: AppTheme.card,
+        color: accent != null ? accent!.withOpacity(0.15) : AppTheme.card,
         borderRadius: BorderRadius.circular(6),
-        border: Border.all(color: AppTheme.border),
+        border: Border.all(color: accent ?? AppTheme.border),
       ),
       child: icon != null
-          ? Icon(icon, color: AppTheme.textSec, size: 15)
-          : Center(child: Text(label!, style: const TextStyle(
-              fontFamily: 'monospace', color: AppTheme.textSec,
+          ? Icon(icon, color: accent ?? AppTheme.textSec, size: 15)
+          : Center(child: Text(label!, style: TextStyle(
+              fontFamily: 'monospace', color: accent ?? AppTheme.textSec,
               fontSize: 10, fontWeight: FontWeight.w800, letterSpacing: 1.5,
             ))),
     ),

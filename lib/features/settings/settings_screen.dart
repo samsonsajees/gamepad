@@ -3,6 +3,7 @@ import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../shared/theme.dart';
+import '../layout/layout_provider.dart';
 import 'settings_provider.dart';
 
 class SettingsScreen extends ConsumerStatefulWidget {
@@ -190,6 +191,20 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
 
         const SizedBox(height: 32),
 
+        // ── LAYOUT CUSTOMIZATION ─────────────────────────────────────────────────
+        _Section(
+          title: 'LAYOUT CUSTOMIZATION',
+          subtitle: 'Drag, resize, and rotate controls to fit your grip.\n'
+              'Tap EDIT on any gamepad screen to enter edit mode.',
+          child: Column(children: [
+            _LayoutResetRow(label: 'Racing Layout', screenId: 'racing'),
+            const SizedBox(height: 12),
+            _LayoutResetRow(label: 'FPS Layout',    screenId: 'fps'),
+          ]),
+        ),
+
+        const SizedBox(height: 32),
+
         // ── Latency hint ─────────────────────────────────────────────────────
         Container(
           padding: const EdgeInsets.all(14),
@@ -213,6 +228,59 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
+// Layout reset row
+// ─────────────────────────────────────────────────────────────────────────────
+
+class _LayoutResetRow extends ConsumerWidget {
+  final String label;
+  final String screenId;
+  const _LayoutResetRow({required this.label, required this.screenId});
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    return Row(
+      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+      children: [
+        Text(label, style: const TextStyle(
+          fontFamily: 'monospace', color: AppTheme.textSec, fontSize: 12,
+        )),
+        GestureDetector(
+          onTap: () async {
+            await ref.read(layoutProvider.notifier).resetLayout(screenId);
+            if (context.mounted) {
+              ScaffoldMessenger.of(context).showSnackBar(
+                SnackBar(
+                  content: Text(
+                    '$label reset to defaults',
+                    style: const TextStyle(fontFamily: 'monospace', fontSize: 11),
+                  ),
+                  backgroundColor: AppTheme.surface,
+                  behavior: SnackBarBehavior.floating,
+                  duration: const Duration(seconds: 2),
+                ),
+              );
+            }
+          },
+          child: Container(
+            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 6),
+            decoration: BoxDecoration(
+              color: AppTheme.card,
+              borderRadius: BorderRadius.circular(6),
+              border: Border.all(color: AppTheme.border),
+            ),
+            child: const Text('RESET', style: TextStyle(
+              fontFamily: 'monospace', color: AppTheme.accent,
+              fontSize: 10, fontWeight: FontWeight.w800, letterSpacing: 1.5,
+            )),
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+
 // Reusable sub-widgets
 // ─────────────────────────────────────────────────────────────────────────────
 

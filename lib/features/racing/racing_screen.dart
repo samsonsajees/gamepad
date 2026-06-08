@@ -8,6 +8,8 @@ import '../../shared/theme.dart';
 import '../connection/connection_provider.dart';
 import '../connection/connection_screen.dart';
 import '../fps/fps_screen.dart';
+import '../layout/draggable_element.dart';
+import '../layout/layout_provider.dart';
 import '../settings/settings_screen.dart';
 import 'packet_sender.dart';
 import 'racing_providers.dart';
@@ -69,10 +71,15 @@ class _RacingScreenState extends ConsumerState<RacingScreen> {
             child: Column(
               children: [
                 _Header(status: status, ctrl: ctrl),
+                // Hint banner — visible only in edit mode
+                const EditModeBanner(screenId: 'racing'),
                 const SizedBox(height: 6),
                 Padding(
                   padding: const EdgeInsets.symmetric(horizontal: 80),
-                  child: SteeringIndicator(value: ctrl.steeringAngle),
+                  child: DraggableElement(
+                    id: 'steering', screenId: 'racing', label: 'STEERING',
+                    child: SteeringIndicator(value: ctrl.steeringAngle),
+                  ),
                 ),
                 const SizedBox(height: 8),
                 Expanded(
@@ -81,22 +88,28 @@ class _RacingScreenState extends ConsumerState<RacingScreen> {
                     child: Row(
                       crossAxisAlignment: CrossAxisAlignment.stretch,
                       children: [
-                        _TriggerCol(
-                          label: 'BRAKE',
-                          pct:   ctrl.leftTrigger,
-                          color: const Color(0xFFE8001C),
-                          onChanged: (v) => ref
-                              .read(controllerStateProvider.notifier)
-                              .setLeftTrigger(v),
+                        DraggableElement(
+                          id: 'brake', screenId: 'racing', label: 'BRAKE',
+                          child: _TriggerCol(
+                            label: 'BRAKE',
+                            pct:   ctrl.leftTrigger,
+                            color: const Color(0xFFE8001C),
+                            onChanged: (v) => ref
+                                .read(controllerStateProvider.notifier)
+                                .setLeftTrigger(v),
+                          ),
                         ),
                         Expanded(child: _CenterPanel(ctrl: ctrl)),
-                        _TriggerCol(
-                          label: 'THROTTLE',
-                          pct:   ctrl.rightTrigger,
-                          color: const Color(0xFF00C853),
-                          onChanged: (v) => ref
-                              .read(controllerStateProvider.notifier)
-                              .setRightTrigger(v),
+                        DraggableElement(
+                          id: 'throttle', screenId: 'racing', label: 'THROTTLE',
+                          child: _TriggerCol(
+                            label: 'THROTTLE',
+                            pct:   ctrl.rightTrigger,
+                            color: const Color(0xFF00C853),
+                            onChanged: (v) => ref
+                                .read(controllerStateProvider.notifier)
+                                .setRightTrigger(v),
+                          ),
                         ),
                       ],
                     ),
@@ -132,6 +145,7 @@ class _Header extends ConsumerWidget {
       ConnectionStatus.connecting   => AppTheme.orange,
       _                             => AppTheme.textDim,
     };
+    final editMode = ref.watch(editModeProvider('racing'));
 
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
@@ -157,25 +171,33 @@ class _Header extends ConsumerWidget {
             )),
           ),
           const Spacer(),
-          // Switch to FPS layout
+          // Edit / Done toggle
           _IconBtn(
-            label: 'FPS',
-            onTap: () {
-              ref.read(packetSenderProvider).stop();
-              Navigator.pushReplacement(context,
-                MaterialPageRoute(builder: (_) => const FpsScreen()));
-            },
+            label: editMode ? 'DONE' : 'EDIT',
+            accent: editMode ? AppTheme.green : null,
+            onTap: () => ref
+                .read(editModeProvider('racing').notifier)
+                .state = !editMode,
           ),
           const SizedBox(width: 6),
+          // Switch to FPS layout (hidden in edit mode to prevent accidental nav)
+          if (!editMode) ...[  
+            _IconBtn(
+              label: 'FPS',
+              onTap: () {
+                ref.read(packetSenderProvider).stop();
+                Navigator.pushReplacement(context,
+                  MaterialPageRoute(builder: (_) => const FpsScreen()));
+              },
+            ),
+            const SizedBox(width: 6),
+          ],
           // Settings
           _IconBtn(
             icon: Icons.settings_rounded,
             onTap: () async {
               await Navigator.push(context,
                 MaterialPageRoute(builder: (_) => const SettingsScreen()));
-              // Settings was shown in portrait on top of this landscape screen.
-              // Re-lock landscape now that we're back (initState won't re-run
-              // because this screen was never disposed).
               await SystemChrome.setPreferredOrientations([
                 DeviceOrientation.landscapeLeft,
                 DeviceOrientation.landscapeRight,
@@ -183,25 +205,25 @@ class _Header extends ConsumerWidget {
             },
           ),
           const SizedBox(width: 6),
-          // Disconnect
-          _IconBtn(
-            icon: Icons.close_rounded,
-            onTap: () async {
-              ref.read(controllerStateProvider.notifier).stopSensors();
-              ref.read(packetSenderProvider).stop();
-              await ref.read(connectionNotifierProvider.notifier).disconnect();
-              // Restore portrait now that we're leaving all gamepad screens
-              await SystemChrome.setPreferredOrientations([
-                DeviceOrientation.portraitUp,
-                DeviceOrientation.portraitDown,
-              ]);
-              if (context.mounted) {
-                Navigator.of(context).pushReplacement(
-                  MaterialPageRoute(builder: (_) => const ConnectionScreen()),
-                );
-              }
-            },
-          ),
+          // Disconnect (hidden in edit mode)
+          if (!editMode)
+            _IconBtn(
+              icon: Icons.close_rounded,
+              onTap: () async {
+                ref.read(controllerStateProvider.notifier).stopSensors();
+                ref.read(packetSenderProvider).stop();
+                await ref.read(connectionNotifierProvider.notifier).disconnect();
+                await SystemChrome.setPreferredOrientations([
+                  DeviceOrientation.portraitUp,
+                  DeviceOrientation.portraitDown,
+                ]);
+                if (context.mounted) {
+                  Navigator.of(context).pushReplacement(
+                    MaterialPageRoute(builder: (_) => const ConnectionScreen()),
+                  );
+                }
+              },
+            ),
         ],
       ),
     );
@@ -259,26 +281,35 @@ class _CenterPanel extends ConsumerWidget {
     return Column(
       mainAxisAlignment: MainAxisAlignment.spaceEvenly,
       children: [
-        GamepadButton(
-          label: 'HAND\nBRAKE', color: const Color(0xFFFF9800),
-          size: 80, fontSize: 10,
-          onPressed:  () => n.pressButton(PacketEncoder.btnA),
-          onReleased: () => n.releaseButton(PacketEncoder.btnA),
+        DraggableElement(
+          id: 'handbrake', screenId: 'racing', label: 'HANDBRAKE',
+          child: GamepadButton(
+            label: 'HAND\nBRAKE', color: const Color(0xFFFF9800),
+            size: 80, fontSize: 10,
+            onPressed:  () => n.pressButton(PacketEncoder.btnA),
+            onReleased: () => n.releaseButton(PacketEncoder.btnA),
+          ),
         ),
-        Row(mainAxisAlignment: MainAxisAlignment.center, children: [
-          GamepadButton(
-            label: 'BACK', color: AppTheme.textSec, size: 46, fontSize: 9,
-            onPressed:  () => n.pressButton(PacketEncoder.btnBack),
-            onReleased: () => n.releaseButton(PacketEncoder.btnBack),
-          ),
-          const SizedBox(width: 14),
-          GamepadButton(
-            label: 'START', color: AppTheme.textSec, size: 46, fontSize: 9,
-            onPressed:  () => n.pressButton(PacketEncoder.btnStart),
-            onReleased: () => n.releaseButton(PacketEncoder.btnStart),
-          ),
-        ]),
-        _DPad(n: n),
+        DraggableElement(
+          id: 'back_start', screenId: 'racing', label: 'BACK / START',
+          child: Row(mainAxisAlignment: MainAxisAlignment.center, children: [
+            GamepadButton(
+              label: 'BACK', color: AppTheme.textSec, size: 46, fontSize: 9,
+              onPressed:  () => n.pressButton(PacketEncoder.btnBack),
+              onReleased: () => n.releaseButton(PacketEncoder.btnBack),
+            ),
+            const SizedBox(width: 14),
+            GamepadButton(
+              label: 'START', color: AppTheme.textSec, size: 46, fontSize: 9,
+              onPressed:  () => n.pressButton(PacketEncoder.btnStart),
+              onReleased: () => n.releaseButton(PacketEncoder.btnStart),
+            ),
+          ]),
+        ),
+        DraggableElement(
+          id: 'dpad', screenId: 'racing', label: 'D-PAD',
+          child: _DPad(n: n),
+        ),
       ],
     );
   }
@@ -336,10 +367,11 @@ class _Dot extends StatelessWidget {
 }
 
 class _IconBtn extends StatelessWidget {
-  final IconData?  icon;
-  final String?    label;
+  final IconData?    icon;
+  final String?      label;
   final VoidCallback onTap;
-  const _IconBtn({this.icon, this.label, required this.onTap});
+  final Color?       accent; // optional tint for active state
+  const _IconBtn({this.icon, this.label, required this.onTap, this.accent});
 
   @override
   Widget build(BuildContext context) => GestureDetector(
@@ -348,13 +380,14 @@ class _IconBtn extends StatelessWidget {
       height: 32,
       padding: const EdgeInsets.symmetric(horizontal: 10),
       decoration: BoxDecoration(
-        color: AppTheme.card, borderRadius: BorderRadius.circular(6),
-        border: Border.all(color: AppTheme.border),
+        color: accent != null ? accent!.withOpacity(0.15) : AppTheme.card,
+        borderRadius: BorderRadius.circular(6),
+        border: Border.all(color: accent ?? AppTheme.border),
       ),
       child: icon != null
-          ? Icon(icon, color: AppTheme.textSec, size: 15)
-          : Center(child: Text(label!, style: const TextStyle(
-              fontFamily: 'monospace', color: AppTheme.textSec,
+          ? Icon(icon, color: accent ?? AppTheme.textSec, size: 15)
+          : Center(child: Text(label!, style: TextStyle(
+              fontFamily: 'monospace', color: accent ?? AppTheme.textSec,
               fontSize: 10, fontWeight: FontWeight.w800, letterSpacing: 1.5,
             ))),
     ),
