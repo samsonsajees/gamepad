@@ -103,139 +103,127 @@ class _FpsScreenState extends ConsumerState<FpsScreen> {
   Widget _buildMainLayout(FpsControllerState ctrl, GameSettings settings) {
     final n = ref.read(fpsControllerProvider.notifier);
 
-    return Row(
-      children: [
-        // ── LEFT column: shoulder buttons + left joystick ──────────────────────
-        SizedBox(
-          width: 130,
-          child: Column(
-            children: [
-              // LB / LT row
-              DraggableElement(
-                id: 'lb_lt', screenId: 'fps', label: 'LB / LT',
-                child: Row(children: [
-                  _ShoulderBtn(
-                    label: 'LB',
-                    onDown:  () => n.pressButton(PacketEncoder.btnLB),
-                    onUp:    () => n.releaseButton(PacketEncoder.btnLB),
-                  ),
-                  const SizedBox(width: 6),
-                  Expanded(child: _TriggerBar(
-                    label: 'LT',
-                    value: ctrl.leftTrigger,
-                    color: AppTheme.blue,
-                    onChanged: n.setLeftTrigger,
-                  )),
-                ]),
-              ),
-              const SizedBox(height: 12),
-              // Left stick — movement
-              Expanded(
-                child: Center(
-                  child: DraggableElement(
-                    id: 'left_stick', screenId: 'fps', label: 'LEFT STICK',
-                    child: JoystickWidget(
-                      size: 110,
-                      deadzone: settings.joystickDeadzone,
-                      label: 'MOVE',
-                      color: AppTheme.blue,
-                      onChanged: n.setLeftStick,
-                    ),
-                  ),
+    return LayoutBuilder(builder: (_, bc) {
+      final w = bc.maxWidth;
+      final h = bc.maxHeight;
+      return Stack(
+        children: [
+          // ── LB / LT — top-left ─────────────────────────────────────────────
+          GameEl(
+            id: 'lb_lt', screenId: 'fps', label: 'LB / LT',
+            naturalLeft: 0, naturalTop: 0,
+            child: SizedBox(
+              width: 130,
+              child: Row(children: [
+                _ShoulderBtn(
+                  label: 'LB',
+                  onDown: () => n.pressButton(PacketEncoder.btnLB),
+                  onUp:   () => n.releaseButton(PacketEncoder.btnLB),
                 ),
-              ),
-            ],
+                const SizedBox(width: 6),
+                Expanded(child: _TriggerBar(
+                  label: 'LT',
+                  value: ctrl.leftTrigger,
+                  color: AppTheme.blue,
+                  onChanged: n.setLeftTrigger,
+                )),
+              ]),
+            ),
           ),
-        ),
 
-        // ── CENTER: back/start + d-pad ───────────────────────────────────
-        Expanded(
-          child: Column(
-            mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-            children: [
-              DraggableElement(
-                id: 'back_start', screenId: 'fps', label: 'BACK / START',
-                child: Row(
-                  mainAxisAlignment: MainAxisAlignment.center,
-                  children: [
-                    _SmallBtn(
-                      label: 'BACK',
-                      onDown:  () => n.pressButton(PacketEncoder.btnBack),
-                      onUp:    () => n.releaseButton(PacketEncoder.btnBack),
-                    ),
-                    const SizedBox(width: 14),
-                    _SmallBtn(
-                      label: 'START',
-                      onDown:  () => n.pressButton(PacketEncoder.btnStart),
-                      onUp:    () => n.releaseButton(PacketEncoder.btnStart),
-                    ),
-                  ],
+          // ── Left stick — bottom-left ────────────────────────────────────────
+          GameEl(
+            id: 'left_stick', screenId: 'fps', label: 'LEFT STICK',
+            naturalLeft: 10, naturalTop: h * 0.40,
+            child: JoystickWidget(
+              size: 110,
+              deadzone: settings.joystickDeadzone,
+              label: 'MOVE',
+              color: AppTheme.blue,
+              onChanged: n.setLeftStick,
+            ),
+          ),
+
+          // ── Back / Start — centre top ───────────────────────────────────────
+          GameEl(
+            id: 'back_start', screenId: 'fps', label: 'BACK / START',
+            naturalLeft: (w - 108) / 2, naturalTop: h * 0.12,
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                _SmallBtn(
+                  label: 'BACK',
+                  onDown: () => n.pressButton(PacketEncoder.btnBack),
+                  onUp:   () => n.releaseButton(PacketEncoder.btnBack),
                 ),
-              ),
-              DraggableElement(
-                id: 'dpad', screenId: 'fps', label: 'D-PAD',
-                child: _DPad(n: n),
-              ),
-            ],
+                const SizedBox(width: 14),
+                _SmallBtn(
+                  label: 'START',
+                  onDown: () => n.pressButton(PacketEncoder.btnStart),
+                  onUp:   () => n.releaseButton(PacketEncoder.btnStart),
+                ),
+              ],
+            ),
           ),
-        ),
 
-        // ── RIGHT column: face buttons + right joystick / gyro ──────────────
-        SizedBox(
-          width: 130,
-          child: Column(
-            children: [
-              // RB / RT row
-              DraggableElement(
-                id: 'rb_rt', screenId: 'fps', label: 'RB / RT',
-                child: Row(children: [
-                  Expanded(child: _TriggerBar(
-                    label: 'RT',
-                    value: ctrl.rightTrigger,
+          // ── D-Pad — centre bottom ───────────────────────────────────────────
+          GameEl(
+            id: 'dpad', screenId: 'fps', label: 'D-PAD',
+            naturalLeft: (w - 100) / 2, naturalTop: h * 0.55,
+            child: _DPad(n: n),
+          ),
+
+          // ── RB / RT — top-right ─────────────────────────────────────────────
+          GameEl(
+            id: 'rb_rt', screenId: 'fps', label: 'RB / RT',
+            naturalLeft: w - 130, naturalTop: 0,
+            child: SizedBox(
+              width: 130,
+              child: Row(children: [
+                Expanded(child: _TriggerBar(
+                  label: 'RT',
+                  value: ctrl.rightTrigger,
+                  color: AppTheme.accent,
+                  onChanged: n.setRightTrigger,
+                )),
+                const SizedBox(width: 6),
+                _ShoulderBtn(
+                  label: 'RB',
+                  onDown: () => n.pressButton(PacketEncoder.btnRB),
+                  onUp:   () => n.releaseButton(PacketEncoder.btnRB),
+                ),
+              ]),
+            ),
+          ),
+
+          // ── Face buttons (ABXY) — right ─────────────────────────────────────
+          GameEl(
+            id: 'face_buttons', screenId: 'fps', label: 'ABXY',
+            naturalLeft: w - 128, naturalTop: h * 0.14,
+            child: _FaceButtons(n: n),
+          ),
+
+          // ── Right stick / Gyro — bottom-right ──────────────────────────────
+          GameEl(
+            id: 'right_stick', screenId: 'fps',
+            label: settings.gyroEnabled ? 'GYRO' : 'RIGHT STICK',
+            naturalLeft: w - 110, naturalTop: h * 0.52,
+            child: settings.gyroEnabled
+                ? _GyroIndicator(x: ctrl.rightX, y: ctrl.rightY)
+                : JoystickWidget(
+                    size: 90,
+                    deadzone: settings.joystickDeadzone,
+                    label: 'AIM',
                     color: AppTheme.accent,
-                    onChanged: n.setRightTrigger,
-                  )),
-                  const SizedBox(width: 6),
-                  _ShoulderBtn(
-                    label: 'RB',
-                    onDown:  () => n.pressButton(PacketEncoder.btnRB),
-                    onUp:    () => n.releaseButton(PacketEncoder.btnRB),
+                    onChanged: n.setRightStick,
                   ),
-                ]),
-              ),
-              const SizedBox(height: 12),
-              // Face buttons (ABXY) + right stick
-              Expanded(
-                child: Column(
-                  mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-                  children: [
-                    DraggableElement(
-                      id: 'face_buttons', screenId: 'fps', label: 'ABXY',
-                      child: _FaceButtons(n: n),
-                    ),
-                    DraggableElement(
-                      id: 'right_stick', screenId: 'fps',
-                      label: settings.gyroEnabled ? 'GYRO' : 'RIGHT STICK',
-                      child: settings.gyroEnabled
-                          ? _GyroIndicator(x: ctrl.rightX, y: ctrl.rightY)
-                          : JoystickWidget(
-                              size: 90,
-                              deadzone: settings.joystickDeadzone,
-                              label: 'AIM',
-                              color: AppTheme.accent,
-                              onChanged: n.setRightStick,
-                            ),
-                    ),
-                  ],
-                ),
-              ),
-            ],
           ),
-        ),
-      ],
-    );
+        ],
+      );
+    });
   }
-}
+} // end _FpsScreenState
+
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Header
@@ -290,9 +278,12 @@ class _FpsHeader extends ConsumerWidget {
           _IconBtn(
             label: editMode ? 'DONE' : 'EDIT',
             accent: editMode ? AppTheme.green : null,
-            onTap: () => ref
-                .read(editModeProvider('fps').notifier)
-                .state = !editMode,
+            onTap: () {
+              if (editMode) {
+                ref.read(selectedElementProvider('fps').notifier).state = null;
+              }
+              ref.read(editModeProvider('fps').notifier).state = !editMode;
+            },
           ),
           const SizedBox(width: 6),
           // Switch to Racing layout (hidden in edit mode)

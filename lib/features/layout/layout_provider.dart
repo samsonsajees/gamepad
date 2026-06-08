@@ -47,7 +47,19 @@ class LayoutNotifier extends AsyncNotifier<Map<String, ScreenLayout>> {
   Future<void> updateElement(String screenId, ElementLayout el) async {
     final current = state.valueOrNull ?? {};
     final screen  = (current[screenId] ?? const ScreenLayout()).withElement(el);
+    // Update in-memory state immediately so every watcher sees the new
+    // position in the very next frame — before the disk write completes.
+    state = AsyncValue.data({...current, screenId: screen});
+    // Persist to SharedPreferences in the background.
     await _prefs.setString(_key(screenId), screen.toJsonString());
+  }
+
+  /// Updates element layout in-memory ONLY — no disk write.
+  /// Call this on every drag frame for smooth 60 fps movement.
+  /// Call [updateElement] once on gesture end to persist.
+  void updateElementLive(String screenId, ElementLayout el) {
+    final current = state.valueOrNull ?? {};
+    final screen  = (current[screenId] ?? const ScreenLayout()).withElement(el);
     state = AsyncValue.data({...current, screenId: screen});
   }
 
@@ -83,3 +95,10 @@ final fpsLayoutProvider = Provider<ScreenLayout>((ref) =>
 
 final editModeProvider =
     StateProvider.family<bool, String>((ref, screenId) => false);
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Selection — which element is currently selected per screen (null = none)
+// ─────────────────────────────────────────────────────────────────────────────
+
+final selectedElementProvider =
+    StateProvider.family<String?, String>((ref, screenId) => null);

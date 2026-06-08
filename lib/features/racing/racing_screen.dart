@@ -61,6 +61,7 @@ class _RacingScreenState extends ConsumerState<RacingScreen> {
     final ctrl   = ref.watch(controllerStateProvider);
     final status = ref.watch(connectionStatusStreamProvider).valueOrNull
         ?? ConnectionStatus.disconnected;
+    final n = ref.read(controllerStateProvider.notifier);
 
     return Scaffold(
       backgroundColor: AppTheme.bg,
@@ -71,49 +72,114 @@ class _RacingScreenState extends ConsumerState<RacingScreen> {
             child: Column(
               children: [
                 _Header(status: status, ctrl: ctrl),
-                // Hint banner — visible only in edit mode
                 const EditModeBanner(screenId: 'racing'),
-                const SizedBox(height: 6),
-                Padding(
-                  padding: const EdgeInsets.symmetric(horizontal: 80),
-                  child: DraggableElement(
-                    id: 'steering', screenId: 'racing', label: 'STEERING',
-                    child: SteeringIndicator(value: ctrl.steeringAngle),
-                  ),
-                ),
-                const SizedBox(height: 8),
+                // ── Game area — full Stack so every element's layout position
+                // matches its visual position (fixes hit-testing after move). ──
                 Expanded(
-                  child: Padding(
-                    padding: const EdgeInsets.fromLTRB(12, 0, 12, 12),
-                    child: Row(
-                      crossAxisAlignment: CrossAxisAlignment.stretch,
+                  child: LayoutBuilder(builder: (_, bc) {
+                    final w = bc.maxWidth;
+                    final h = bc.maxHeight;
+                    return Stack(
                       children: [
-                        DraggableElement(
-                          id: 'brake', screenId: 'racing', label: 'BRAKE',
-                          child: _TriggerCol(
-                            label: 'BRAKE',
-                            pct:   ctrl.leftTrigger,
-                            color: const Color(0xFFE8001C),
-                            onChanged: (v) => ref
-                                .read(controllerStateProvider.notifier)
-                                .setLeftTrigger(v),
+                        // Steering — top centre
+                        GameEl(
+                          id: 'steering', screenId: 'racing',
+                          label: 'STEERING',
+                          naturalLeft: w * 0.12, naturalTop: 8,
+                          child: SizedBox(
+                            width: w * 0.76,
+                            child: SteeringIndicator(
+                                value: ctrl.steeringAngle),
                           ),
                         ),
-                        Expanded(child: _CenterPanel(ctrl: ctrl)),
-                        DraggableElement(
-                          id: 'throttle', screenId: 'racing', label: 'THROTTLE',
-                          child: _TriggerCol(
-                            label: 'THROTTLE',
-                            pct:   ctrl.rightTrigger,
-                            color: const Color(0xFF00C853),
-                            onChanged: (v) => ref
-                                .read(controllerStateProvider.notifier)
-                                .setRightTrigger(v),
+                        // Brake — left
+                        GameEl(
+                          id: 'brake', screenId: 'racing',
+                          label: 'BRAKE',
+                          naturalLeft: 12, naturalTop: 58,
+                          child: SizedBox(
+                            height: h - 78,
+                            child: _TriggerCol(
+                              label: 'BRAKE',
+                              pct:   ctrl.leftTrigger,
+                              color: const Color(0xFFE8001C),
+                              onChanged: n.setLeftTrigger,
+                            ),
                           ),
+                        ),
+                        // Throttle — right
+                        GameEl(
+                          id: 'throttle', screenId: 'racing',
+                          label: 'THROTTLE',
+                          naturalLeft: w - 96, naturalTop: 58,
+                          child: SizedBox(
+                            height: h - 78,
+                            child: _TriggerCol(
+                              label: 'THROTTLE',
+                              pct:   ctrl.rightTrigger,
+                              color: const Color(0xFF00C853),
+                              onChanged: n.setRightTrigger,
+                            ),
+                          ),
+                        ),
+                        // Handbrake — centre top
+                        GameEl(
+                          id: 'handbrake', screenId: 'racing',
+                          label: 'HANDBRAKE',
+                          naturalLeft: (w - 80) / 2,
+                          naturalTop: h * 0.12,
+                          child: GamepadButton(
+                            label: 'HAND\nBRAKE',
+                            color: const Color(0xFFFF9800),
+                            size: 80, fontSize: 10,
+                            onPressed:  () => n.pressButton(
+                                PacketEncoder.btnA),
+                            onReleased: () => n.releaseButton(
+                                PacketEncoder.btnA),
+                          ),
+                        ),
+                        // Back / Start — centre
+                        GameEl(
+                          id: 'back_start', screenId: 'racing',
+                          label: 'BACK / START',
+                          naturalLeft: (w - 106) / 2,
+                          naturalTop: h * 0.48,
+                          child: Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              GamepadButton(
+                                label: 'BACK',
+                                color: AppTheme.textSec,
+                                size: 46, fontSize: 9,
+                                onPressed:  () => n.pressButton(
+                                    PacketEncoder.btnBack),
+                                onReleased: () => n.releaseButton(
+                                    PacketEncoder.btnBack),
+                              ),
+                              const SizedBox(width: 14),
+                              GamepadButton(
+                                label: 'START',
+                                color: AppTheme.textSec,
+                                size: 46, fontSize: 9,
+                                onPressed:  () => n.pressButton(
+                                    PacketEncoder.btnStart),
+                                onReleased: () => n.releaseButton(
+                                    PacketEncoder.btnStart),
+                              ),
+                            ],
+                          ),
+                        ),
+                        // D-Pad — centre bottom
+                        GameEl(
+                          id: 'dpad', screenId: 'racing',
+                          label: 'D-PAD',
+                          naturalLeft: (w - 100) / 2,
+                          naturalTop: h * 0.68,
+                          child: _DPad(n: n),
                         ),
                       ],
-                    ),
-                  ),
+                    );
+                  }),
                 ),
               ],
             ),
@@ -175,9 +241,14 @@ class _Header extends ConsumerWidget {
           _IconBtn(
             label: editMode ? 'DONE' : 'EDIT',
             accent: editMode ? AppTheme.green : null,
-            onTap: () => ref
-                .read(editModeProvider('racing').notifier)
-                .state = !editMode,
+            onTap: () {
+              if (editMode) {
+                // Exiting edit mode — clear any selection so the next entry
+                // starts with no element pre-selected.
+                ref.read(selectedElementProvider('racing').notifier).state = null;
+              }
+              ref.read(editModeProvider('racing').notifier).state = !editMode;
+            },
           ),
           const SizedBox(width: 6),
           // Switch to FPS layout (hidden in edit mode to prevent accidental nav)
@@ -267,53 +338,7 @@ class _TriggerCol extends StatelessWidget {
   }
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
-// Center panel
-// ─────────────────────────────────────────────────────────────────────────────
-
-class _CenterPanel extends ConsumerWidget {
-  final ControllerState ctrl;
-  const _CenterPanel({required this.ctrl});
-
-  @override
-  Widget build(BuildContext context, WidgetRef ref) {
-    final n = ref.read(controllerStateProvider.notifier);
-    return Column(
-      mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-      children: [
-        DraggableElement(
-          id: 'handbrake', screenId: 'racing', label: 'HANDBRAKE',
-          child: GamepadButton(
-            label: 'HAND\nBRAKE', color: const Color(0xFFFF9800),
-            size: 80, fontSize: 10,
-            onPressed:  () => n.pressButton(PacketEncoder.btnA),
-            onReleased: () => n.releaseButton(PacketEncoder.btnA),
-          ),
-        ),
-        DraggableElement(
-          id: 'back_start', screenId: 'racing', label: 'BACK / START',
-          child: Row(mainAxisAlignment: MainAxisAlignment.center, children: [
-            GamepadButton(
-              label: 'BACK', color: AppTheme.textSec, size: 46, fontSize: 9,
-              onPressed:  () => n.pressButton(PacketEncoder.btnBack),
-              onReleased: () => n.releaseButton(PacketEncoder.btnBack),
-            ),
-            const SizedBox(width: 14),
-            GamepadButton(
-              label: 'START', color: AppTheme.textSec, size: 46, fontSize: 9,
-              onPressed:  () => n.pressButton(PacketEncoder.btnStart),
-              onReleased: () => n.releaseButton(PacketEncoder.btnStart),
-            ),
-          ]),
-        ),
-        DraggableElement(
-          id: 'dpad', screenId: 'racing', label: 'D-PAD',
-          child: _DPad(n: n),
-        ),
-      ],
-    );
-  }
-}
+// _CenterPanel removed — its elements are inlined in the Stack game area.
 
 class _DPad extends StatelessWidget {
   final ControllerStateNotifier n;

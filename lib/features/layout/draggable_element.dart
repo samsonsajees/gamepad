@@ -9,18 +9,31 @@ import 'layout_provider.dart';
 // ─────────────────────────────────────────────────────────────────────────────
 // DraggableElement
 // ─────────────────────────────────────────────────────────────────────────────
-// In PLAY mode : applies the saved translate / scale / rotate transform.
-// In EDIT mode : adds gesture handlers (pan = move, pinch = resize,
-//                two-finger twist = rotate) and a glowing selection overlay.
+// Translation (dx/dy) is intentionally NOT applied here.
+// It is applied by the parent _GameEl Positioned widget, which means the
+// element's LAYOUT position (and therefore its hit-test area) always matches
+// its visual position.
 //
-// Positions are stored as *deltas* from the element's natural layout spot,
-// so they work across different screen sizes.
+// DraggableElement only applies scale + rotation via a Transform.
+//
+// Interaction model (EDIT mode):
+//   Unselected  — subtle outline; tap anywhere → select.
+//   Selected    — bright border + two handles:
+//     • Centre  ✥ (blue)   — pan to TRANSLATE (updates provider live; disk on end).
+//     • Corner  ⊕ (purple) — pan to SCALE     (updates Transform live; disk on end).
+//
+// Coordinate note for the move handle:
+//   The GestureDetector sits inside Transform(scale=s, rotateZ=r), so
+//   DragUpdateDetails.delta is in the LOCAL space of that transform.
+//   We apply the forward rotation×scale matrix to convert to PARENT space:
+//     parent_Δ = s · Rot(r) · local_Δ
+//   which is then added directly to el.dx / el.dy.
 // ─────────────────────────────────────────────────────────────────────────────
 
 class DraggableElement extends ConsumerStatefulWidget {
   final String  id;
   final String  screenId; // 'racing' | 'fps'
-  final String? label;    // optional name shown in edit mode
+  final String? label;
   final Widget  child;
 
   const DraggableElement({
@@ -36,192 +49,326 @@ class DraggableElement extends ConsumerStatefulWidget {
 }
 
 class _DraggableElementState extends ConsumerState<DraggableElement> {
-  bool _gesturing = false;
+  // ── Move gesture ───────────────────────────────────────────────────────────
+  bool _isMoving = false;
 
-  // Local state used during an active gesture (avoids a provider write per frame).
-  late ElementLayout _localEl;
-  double _baseScale    = 1.0;
-  double _baseRotation = 0.0;
+  // ── Scale gesture ──────────────────────────────────────────────────────────
+  bool           _isScaling    = false;
+  double         _scaleBase    = 1.0;
+  double         _scaleTotalDx = 0.0;
+  ElementLayout? _liveScaleEl; // tracks live scale during the gesture
 
-  // ── Gesture callbacks ──────────────────────────────────────────────────────
+  // ── Helpers ────────────────────────────────────────────────────────────────
 
-  ElementLayout _readEl() {
+  ElementLayout _fromProvider() {
     final map = ref.read(layoutProvider).valueOrNull;
     return (map?[widget.screenId] ?? const ScreenLayout()).forId(widget.id);
   }
 
-  void _onScaleStart(ScaleStartDetails d) {
-    _localEl      = _readEl();
-    _baseScale    = _localEl.scale;
-    _baseRotation = _localEl.rotation;
-    setState(() => _gesturing = true);
+  void _select() =>
+      ref.read(selectedElementProvider(widget.screenId).notifier).state =
+          widget.id;
+
+  // ── Move handlers ──────────────────────────────────────────────────────────
+  // No local state for position — position is driven by the provider, which
+  // the parent _GameEl Positioned widget watches synchronously.
+
+  void _onMoveStart(DragStartDetails _) {
+    setState(() { _isMoving = true; });
   }
 
-  void _onScaleUpdate(ScaleUpdateDetails d) {
-    if (!_gesturing) return;
+  void _onMoveUpdate(DragUpdateDetails d) {
+    if (!_isMoving) return;
+    // Read latest el from provider (updateElementLive is synchronous, so this
+    // always reflects the last drag update).
+    final prev = _fromProvider();
+    final r   = prev.rotation * pi / 180;
+    final s   = prev.scale;
+    final ldx = d.delta.dx;
+    final ldy = d.delta.dy;
+    // Convert local-space delta → parent-space (game area Stack) delta.
+    final pdx = s * (ldx * cos(r) - ldy * sin(r));
+    final pdy = s * (ldx * sin(r) + ldy * cos(r));
+    final newEl = prev.copyWith(dx: prev.dx + pdx, dy: prev.dy + pdy);
+    // Live update: in-memory only, no disk write → smooth dragging.
+    ref.read(layoutProvider.notifier).updateElementLive(widget.screenId, newEl);
+  }
+
+  void _onMoveEnd(DragEndDetails _) {
+    if (!_isMoving) return;
+    setState(() { _isMoving = false; });
+    // Persist to disk on gesture end.
+    ref.read(layoutProvider.notifier)
+        .updateElement(widget.screenId, _fromProvider());
+  }
+
+  // ── Scale handlers ─────────────────────────────────────────────────────────
+  // Exponential: +250 px → ×2; −250 px → ×0.5.
+  // Uses raw local delta intentionally — "drag right = grow" is intuitive
+  // regardless of element rotation.
+
+  void _onScaleStart(DragStartDetails _) {
+    final el = _fromProvider();
     setState(() {
-      _localEl = _localEl.copyWith(
-        dx:       _localEl.dx + d.focalPointDelta.dx,
-        dy:       _localEl.dy + d.focalPointDelta.dy,
-        scale:    (_baseScale * d.scale).clamp(0.4, 2.5),
-        rotation: _baseRotation + d.rotation * 180 / pi,
-      );
+      _isScaling    = true;
+      _scaleBase    = el.scale;
+      _scaleTotalDx = 0.0;
+      _liveScaleEl  = el;
     });
   }
 
-  void _onScaleEnd(ScaleEndDetails d) {
-    if (!_gesturing) return;
-    final snapped = _localEl.copyWith(rotation: _snapRotation(_localEl.rotation));
-    setState(() => _gesturing = false);
-    ref.read(layoutProvider.notifier).updateElement(widget.screenId, snapped);
+  void _onScaleUpdate(DragUpdateDetails d) {
+    if (!_isScaling || _liveScaleEl == null) return;
+    _scaleTotalDx += d.delta.dx;
+    final newScale =
+        (_scaleBase * pow(2.0, _scaleTotalDx / 250.0)).clamp(0.4, 2.5);
+    setState(() { _liveScaleEl = _liveScaleEl!.copyWith(scale: newScale); });
   }
 
-  /// Snap to nearest cardinal angle if within 15°.
-  double _snapRotation(double deg) {
-    final n = deg % 360;
-    for (final snap in const [0.0, 90.0, 180.0, 270.0, 360.0]) {
-      if ((n - snap).abs() < 15.0) return snap == 360.0 ? 0.0 : snap;
-    }
-    return deg;
+  void _onScaleEnd(DragEndDetails _) {
+    if (!_isScaling || _liveScaleEl == null) return;
+    final finished = _liveScaleEl!;
+    ref.read(layoutProvider.notifier).updateElement(widget.screenId, finished);
+    setState(() { _isScaling = false; _liveScaleEl = finished; });
   }
 
-  // ── Transform helper ───────────────────────────────────────────────────────
+  // ── Transform (scale + rotation ONLY — no translate) ──────────────────────
 
-  Widget _applyTransform(ElementLayout el, Widget child) =>
-      Transform.translate(
-        offset: Offset(el.dx, el.dy),
-        child: Transform(
-          alignment: Alignment.center,
-          transform: Matrix4.identity()
-            ..scale(el.scale)
-            ..rotateZ(el.rotation * pi / 180),
-          child: child,
-        ),
-      );
+  Widget _applyTransform(ElementLayout el, Widget child) => Transform(
+    alignment: Alignment.center,
+    transform: Matrix4.identity()
+      ..scale(el.scale)
+      ..rotateZ(el.rotation * pi / 180),
+    child: child,
+  );
 
   // ── Build ──────────────────────────────────────────────────────────────────
 
   @override
   Widget build(BuildContext context) {
-    final editMode = ref.watch(editModeProvider(widget.screenId));
+    final editMode   = ref.watch(editModeProvider(widget.screenId));
+    final selectedId = ref.watch(selectedElementProvider(widget.screenId));
+    final isSelected = selectedId == widget.id;
 
-    // Resolve current element layout.
+    // During scale: use live scale value.
+    // Otherwise:   read from provider (includes live-updated dx/dy).
     final ElementLayout el;
-    if (_gesturing) {
-      el = _localEl; // smooth local update during drag
+    if (_isScaling && _liveScaleEl != null) {
+      el = _liveScaleEl!;
     } else {
-      final layout =
-          ref.watch(layoutProvider).valueOrNull?[widget.screenId] ??
-              const ScreenLayout();
+      final layout = ref.watch(layoutProvider).valueOrNull?[widget.screenId]
+          ?? const ScreenLayout();
       el = layout.forId(widget.id);
     }
 
-    // ── Play mode: just apply the transform ───────────────────────────────
+    // ── Play mode ──────────────────────────────────────────────────────────
     if (!editMode) return _applyTransform(el, widget.child);
 
-    // ── Edit mode: gestures + selection overlay ───────────────────────────
-    // IMPORTANT: GestureDetector must be INSIDE _applyTransform.
-    // Transform.translate moves the visual but NOT the hit-test box of any
-    // ancestor widget. By placing the GestureDetector inside the transform,
-    // its hit area moves together with the painted element, so a second drag
-    // always starts from wherever the element currently is.
-    // (focalPointDelta is in global screen coordinates, so the drag math is
-    // unaffected by the transform.)
-    const borderColor   = Color(0xFF00B0FF);
-    const activeBorder  = Color(0xFF00E5FF);
-    final borderClr     = _gesturing ? activeBorder : borderColor;
-    final borderWidth   = _gesturing ? 2.5 : 1.5;
-
-    return _applyTransform(
-      el,
-      GestureDetector(
-        behavior:      HitTestBehavior.opaque,
-        onScaleStart:  _onScaleStart,
-        onScaleUpdate: _onScaleUpdate,
-        onScaleEnd:    _onScaleEnd,
-        child: Stack(
-          clipBehavior: Clip.none,
-          children: [
-            // Prevent inner buttons / sliders firing in edit mode.
-            AbsorbPointer(child: widget.child),
-
-            // Glowing selection border
-            Positioned.fill(
-              child: IgnorePointer(
-                child: AnimatedContainer(
-                  duration: const Duration(milliseconds: 150),
-                  decoration: BoxDecoration(
-                    borderRadius: BorderRadius.circular(8),
-                    border: Border.all(color: borderClr, width: borderWidth),
-                    color: _gesturing
-                        ? activeBorder.withOpacity(0.08)
-                        : Colors.transparent,
-                  ),
-                ),
-              ),
-            ),
-
-            // Element label (top-left)
-            if (widget.label != null)
-              Positioned(
-                top: 3, left: 5,
+    // ── Edit mode — UNSELECTED ─────────────────────────────────────────────
+    if (!isSelected) {
+      return _applyTransform(
+        el,
+        GestureDetector(
+          behavior: HitTestBehavior.opaque,
+          onTap: _select,
+          child: Stack(
+            children: [
+              AbsorbPointer(child: widget.child),
+              Positioned.fill(
                 child: IgnorePointer(
-                  child: Text(
-                    widget.label!,
-                    style: const TextStyle(
-                      fontFamily: 'monospace', fontSize: 7,
-                      fontWeight: FontWeight.w900, color: borderColor,
-                      letterSpacing: 1.2,
+                  child: Container(
+                    decoration: BoxDecoration(
+                      borderRadius: BorderRadius.circular(8),
+                      border: Border.all(
+                        color: const Color(0xFF00B0FF).withOpacity(0.30),
+                        width: 1.0,
+                      ),
                     ),
                   ),
                 ),
               ),
-
-            // Scale badge (bottom-right)
-            Positioned(
-              bottom: 3, right: 5,
-              child: IgnorePointer(
-                child: Text(
-                  '${(el.scale * 100).round()}%',
-                  style: const TextStyle(
-                    fontFamily: 'monospace', fontSize: 7, color: borderColor,
+              if (widget.label != null)
+                Positioned(
+                  top: 3, left: 5,
+                  child: IgnorePointer(
+                    child: Text(widget.label!, style: const TextStyle(
+                      fontFamily: 'monospace', fontSize: 6,
+                      color: Color(0x4400B0FF), letterSpacing: 1.0,
+                    )),
                   ),
                 ),
-              ),
-            ),
-
-            // Reset-to-default button (top-right corner)
-            Positioned(
-              top: -10, right: -10,
-              child: GestureDetector(
-                onTap: () => ref
-                    .read(layoutProvider.notifier)
-                    .resetElement(widget.screenId, widget.id),
-                child: Container(
-                  width: 22, height: 22,
-                  alignment: Alignment.center,
-                  decoration: const BoxDecoration(
-                    color: Color(0xFFE53935),
-                    shape: BoxShape.circle,
-                    boxShadow: [
-                      BoxShadow(color: Color(0x66E53935), blurRadius: 6),
+              Positioned(
+                bottom: 3, right: 5,
+                child: IgnorePointer(
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: const [
+                      Icon(Icons.touch_app_rounded,
+                          color: Color(0x4400B0FF), size: 9),
+                      SizedBox(width: 2),
+                      Text('TAP', style: TextStyle(
+                        fontFamily: 'monospace', fontSize: 6,
+                        color: Color(0x4400B0FF), letterSpacing: 1.0,
+                      )),
                     ],
                   ),
-                  child: const Icon(Icons.refresh_rounded,
-                      size: 12, color: Colors.white),
+                ),
+              ),
+            ],
+          ),
+        ),
+      );
+    }
+
+    // ── Edit mode — SELECTED ───────────────────────────────────────────────
+    const blue   = Color(0xFF00B0FF);
+    const purple = Color(0xFF7C4DFF);
+
+    return _applyTransform(
+      el,
+      Stack(
+        clipBehavior: Clip.none,
+        children: [
+          // Element body — block all touch pass-through in edit mode.
+          AbsorbPointer(child: widget.child),
+
+          // Selection border (bounding box).
+          Positioned.fill(
+            child: IgnorePointer(
+              child: Container(
+                decoration: BoxDecoration(
+                  borderRadius: BorderRadius.circular(8),
+                  border: Border.all(color: blue, width: 2.0),
+                  color: blue.withOpacity(0.06),
                 ),
               ),
             ),
-          ],
-        ),
+          ),
+
+          // Label (top-left).
+          if (widget.label != null)
+            Positioned(
+              top: 3, left: 5,
+              child: IgnorePointer(
+                child: Text(widget.label!, style: const TextStyle(
+                  fontFamily: 'monospace', fontSize: 7,
+                  fontWeight: FontWeight.w900, color: blue, letterSpacing: 1.2,
+                )),
+              ),
+            ),
+
+          // Scale readout (bottom-right).
+          Positioned(
+            bottom: 3, right: 5,
+            child: IgnorePointer(
+              child: Text('${(el.scale * 100).round()}%', style: const TextStyle(
+                fontFamily: 'monospace', fontSize: 7, color: blue,
+              )),
+            ),
+          ),
+
+          // ── MOVE HANDLE — centre circle ──────────────────────────────────
+          // Pan this to translate the element.
+          // d.delta is in local (scaled+rotated) space; _onMoveUpdate corrects
+          // it to parent (game area Stack) space before updating el.dx/dy.
+          Positioned.fill(
+            child: Center(
+              child: GestureDetector(
+                behavior: HitTestBehavior.opaque,
+                onPanStart:  _onMoveStart,
+                onPanUpdate: _onMoveUpdate,
+                onPanEnd:    _onMoveEnd,
+                child: Container(
+                  width: 52, height: 52,
+                  alignment: Alignment.center,
+                  decoration: BoxDecoration(
+                    color: blue.withOpacity(0.18),
+                    shape: BoxShape.circle,
+                    border: Border.all(color: blue, width: 1.5),
+                    boxShadow: [
+                      BoxShadow(color: blue.withOpacity(0.40), blurRadius: 12),
+                    ],
+                  ),
+                  child: const Icon(Icons.open_with_rounded,
+                      color: Colors.white, size: 24),
+                ),
+              ),
+            ),
+          ),
+
+          // ── SCALE HANDLE — top-right corner ─────────────────────────────
+          // Being the LAST child it is hit-tested before the move handle,
+          // so touches here unambiguously start the scale gesture.
+          Positioned(
+            top: 4, right: 4,
+            child: GestureDetector(
+              behavior: HitTestBehavior.opaque,
+              onPanStart:  _onScaleStart,
+              onPanUpdate: _onScaleUpdate,
+              onPanEnd:    _onScaleEnd,
+              child: Container(
+                width: 30, height: 30,
+                alignment: Alignment.center,
+                decoration: const BoxDecoration(
+                  color: purple, shape: BoxShape.circle,
+                  boxShadow: [BoxShadow(color: Color(0x667C4DFF), blurRadius: 10)],
+                ),
+                child: const Icon(Icons.zoom_out_map_rounded,
+                    color: Colors.white, size: 15),
+              ),
+            ),
+          ),
+        ],
       ),
     );
   }
 }
 
+// ─────────────────────────────────────────────────────────────────────────────
+// _GameEl  — positions a DraggableElement absolutely within a Stack.
+// ─────────────────────────────────────────────────────────────────────────────
+// Place this as a direct child of the game-area Stack.
+// [naturalLeft] and [naturalTop] define where the element lives when the user
+// has not moved it (el.dx == 0, el.dy == 0).  The provider's dx/dy are pixel
+// offsets added to those natural coordinates.
+// ─────────────────────────────────────────────────────────────────────────────
+
+class GameEl extends ConsumerWidget {
+  final String  id;
+  final String  screenId;
+  final double  naturalLeft;
+  final double  naturalTop;
+  final String? label;
+  final Widget  child;
+
+  const GameEl({
+    super.key,
+    required this.id,
+    required this.screenId,
+    required this.naturalLeft,
+    required this.naturalTop,
+    required this.child,
+    this.label,
+  });
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    // Select only this element's layout to minimise rebuilds.
+    final el = ref.watch(layoutProvider.select(
+      (s) => (s.valueOrNull?[screenId] ?? const ScreenLayout()).forId(id),
+    ));
+    return Positioned(
+      left: naturalLeft + el.dx,
+      top:  naturalTop  + el.dy,
+      child: DraggableElement(
+        id: id, screenId: screenId, label: label, child: child,
+      ),
+    );
+  }
+}
 
 // ─────────────────────────────────────────────────────────────────────────────
-// EditModeBanner  — appears at the top of the screen while editing
+// EditModeBanner
 // ─────────────────────────────────────────────────────────────────────────────
 
 class EditModeBanner extends ConsumerWidget {
@@ -236,9 +383,9 @@ class EditModeBanner extends ConsumerWidget {
     return Container(
       width: double.infinity,
       padding: const EdgeInsets.symmetric(vertical: 5),
-      color: const Color(0xFF00B0FF).withOpacity(0.12),
+      color: const Color(0xFF00B0FF).withOpacity(0.10),
       child: const Text(
-        '✏  DRAG TO MOVE   •   PINCH TO RESIZE   •   TWIST TO ROTATE   •   ⟲ TO RESET',
+        '✏  TAP TO SELECT   •   ✥ DRAG TO MOVE   •   ⊕ DRAG TO SCALE',
         textAlign: TextAlign.center,
         style: TextStyle(
           fontFamily: 'monospace', fontSize: 8, letterSpacing: 1.2,
