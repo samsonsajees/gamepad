@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../core/packet_encoder.dart';
@@ -27,6 +28,11 @@ class _RacingScreenState extends ConsumerState<RacingScreen> {
   @override
   void initState() {
     super.initState();
+    // Lock to landscape for the gamepad layout
+    SystemChrome.setPreferredOrientations([
+      DeviceOrientation.landscapeLeft,
+      DeviceOrientation.landscapeRight,
+    ]);
     WidgetsBinding.instance.addPostFrameCallback((_) {
       _notifier = ref.read(controllerStateProvider.notifier);
       _sender = ref.read(packetSenderProvider);
@@ -42,6 +48,9 @@ class _RacingScreenState extends ConsumerState<RacingScreen> {
     // dispose() runs AFTER the next screen's initState, so calling
     // _sender?.stop() would kill the FPS sender that was just started.
     // Button handlers already stop it explicitly before navigating.
+    // NOTE: Do NOT restore portrait here — dispose() fires AFTER the next
+    // screen's initState, so it would undo the landscape lock set by FpsScreen.
+    // Portrait is restored explicitly in the disconnect handler instead.
     super.dispose();
   }
 
@@ -161,8 +170,17 @@ class _Header extends ConsumerWidget {
           // Settings
           _IconBtn(
             icon: Icons.settings_rounded,
-            onTap: () => Navigator.push(context,
-              MaterialPageRoute(builder: (_) => const SettingsScreen())),
+            onTap: () async {
+              await Navigator.push(context,
+                MaterialPageRoute(builder: (_) => const SettingsScreen()));
+              // Settings was shown in portrait on top of this landscape screen.
+              // Re-lock landscape now that we're back (initState won't re-run
+              // because this screen was never disposed).
+              await SystemChrome.setPreferredOrientations([
+                DeviceOrientation.landscapeLeft,
+                DeviceOrientation.landscapeRight,
+              ]);
+            },
           ),
           const SizedBox(width: 6),
           // Disconnect
@@ -172,6 +190,11 @@ class _Header extends ConsumerWidget {
               ref.read(controllerStateProvider.notifier).stopSensors();
               ref.read(packetSenderProvider).stop();
               await ref.read(connectionNotifierProvider.notifier).disconnect();
+              // Restore portrait now that we're leaving all gamepad screens
+              await SystemChrome.setPreferredOrientations([
+                DeviceOrientation.portraitUp,
+                DeviceOrientation.portraitDown,
+              ]);
               if (context.mounted) {
                 Navigator.of(context).pushReplacement(
                   MaterialPageRoute(builder: (_) => const ConnectionScreen()),
