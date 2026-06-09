@@ -95,7 +95,7 @@ class _SplashScreenState extends State<SplashScreen>
             children: [
               // Logo
               Container(
-                padding: const EdgeInsets.all(24),
+                padding: const EdgeInsets.all(8),
                 decoration: BoxDecoration(
                   color: AppTheme.card,
                   shape: BoxShape.circle,
@@ -111,10 +111,11 @@ class _SplashScreenState extends State<SplashScreen>
                     ),
                   ],
                 ),
-                child: const Icon(
-                  Icons.sports_esports_rounded,
-                  size: 64,
-                  color: AppTheme.accent,
+                child: Image.asset(
+                  'assets/logo-no-border.png',
+                  width: 90,
+                  height: 90,
+                  fit: BoxFit.contain,
                 ),
               ),
               const SizedBox(height: 32),
