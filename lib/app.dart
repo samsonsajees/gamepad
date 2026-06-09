@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 
 import 'features/connection/connection_screen.dart';
 import 'features/host/host_screen.dart';
+import 'features/splash/splash_screen.dart';
 import 'shared/theme.dart';
 
 class GamepadApp extends StatelessWidget {
@@ -17,9 +18,11 @@ class GamepadApp extends StatelessWidget {
       debugShowCheckedModeBanner: false,
       // Android  → controller side (connection → racing → fps)
       // Windows  → host side
-      home: Platform.isWindows
-          ? const HostScreen()
-          : const ConnectionScreen(),
+      home: SplashScreen(
+        nextScreen: Platform.isWindows
+            ? const HostScreen()
+            : const ConnectionScreen(),
+      ),
     );
   }
 }
