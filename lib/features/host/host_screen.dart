@@ -9,6 +9,7 @@ import 'package:qr_flutter/qr_flutter.dart';
 
 import '../../shared/theme.dart';
 import 'dependency_manager.dart';
+import 'dependency_screen.dart';
 
 // ── Server state ──────────────────────────────────────────────────────────────
 
@@ -208,10 +209,22 @@ class _HostScreenState extends ConsumerState<HostScreen>
     ref.read(_statusProvider.notifier).state = 'checking_deps';
 
     try {
-      final depsOk = await DependencyManager.ensureDependencies();
+      final depsOk = await DependencyManager.checkDependencies();
       if (!depsOk) {
-        ref.read(_statusProvider.notifier).state = 'error';
-        _addLog('ERR: Failed to install required drivers.');
+        ref.read(_statusProvider.notifier).state = 'stopped';
+        _addLog('WARN: Missing required drivers.');
+        if (mounted) {
+          showDialog(
+            context: context,
+            barrierDismissible: false,
+            builder: (ctx) => DependencyScreen(
+              onComplete: () {
+                Navigator.pop(ctx);
+                _startServer(); // Retry after installing
+              },
+            ),
+          );
+        }
         return;
       }
       _addLog('> Dependencies OK.');

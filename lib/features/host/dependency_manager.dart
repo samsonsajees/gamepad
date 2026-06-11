@@ -7,26 +7,15 @@ class DependencyManager {
   static const String _vigemRegPath =
       r'HKLM\SYSTEM\CurrentControlSet\Services\ViGEmBus';
 
-  /// Ensures all dependencies are installed. Returns true if successful.
-  static Future<bool> ensureDependencies() async {
+  /// Checks if all dependencies are installed. Returns true if successful.
+  static Future<bool> checkDependencies() async {
     if (!Platform.isWindows) return true;
 
     debugPrint('Checking dependencies...');
 
     // Check for ViGEmBus
     bool vigemInstalled = await _isViGEmBusInstalled();
-    if (!vigemInstalled) {
-      debugPrint('ViGEmBus not found. Installing...');
-      bool success = await _installViGEmBus();
-      if (!success) {
-        debugPrint('Failed to install ViGEmBus.');
-        return false;
-      }
-    } else {
-      debugPrint('ViGEmBus is already installed.');
-    }
-
-    return true;
+    return vigemInstalled;
   }
 
   static Future<bool> _isViGEmBusInstalled() async {
@@ -38,7 +27,8 @@ class DependencyManager {
     }
   }
 
-  static Future<bool> _installViGEmBus() async {
+  /// Launches the ViGEmBus installer visibly to avoid Windows Defender flags.
+  static Future<bool> installViGEmBus() async {
     try {
       // Find the bundled MSI file.
       // In a built Flutter Windows app, assets are in data/flutter_assets/assets/deps
@@ -68,12 +58,9 @@ class DependencyManager {
         return false;
       }
 
-      // Run the installer silently
-      debugPrint('Running installer: "$msiPath" /quiet /norestart');
-      final result = await Process.run(msiPath, [
-        '/quiet',
-        '/norestart',
-      ]);
+      // Run the installer visibly so UAC and Windows Defender trust it
+      debugPrint('Running installer: "$msiPath"');
+      final result = await Process.run(msiPath, []);
 
       debugPrint('Installer exit code: ${result.exitCode}');
       return result.exitCode == 0 ||
