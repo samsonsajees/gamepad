@@ -8,6 +8,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:qr_flutter/qr_flutter.dart';
 
 import '../../shared/theme.dart';
+import 'dependency_manager.dart';
 
 // ── Server state ──────────────────────────────────────────────────────────────
 
@@ -203,10 +204,21 @@ class _HostScreenState extends ConsumerState<HostScreen>
   }
 
   Future<void> _startServer() async {
-    _addLog('> Starting gamepad_server.exe …');
-    ref.read(_statusProvider.notifier).state = 'starting';
+    _addLog('> Checking dependencies …');
+    ref.read(_statusProvider.notifier).state = 'checking_deps';
 
     try {
+      final depsOk = await DependencyManager.ensureDependencies();
+      if (!depsOk) {
+        ref.read(_statusProvider.notifier).state = 'error';
+        _addLog('ERR: Failed to install required drivers.');
+        return;
+      }
+      _addLog('> Dependencies OK.');
+
+      _addLog('> Starting gamepad_server.exe …');
+      ref.read(_statusProvider.notifier).state = 'starting';
+
       final exe = _findServerExe();
       _addLog('> Resolved: $exe');
       final proc = await Process.start(exe, []);
@@ -249,7 +261,8 @@ class _HostScreenState extends ConsumerState<HostScreen>
   Future<void> _setupUsbTunnel() async {
     _addLog('> Setting up USB tunnel (adb reverse tcp:5000 tcp:5000) …');
     try {
-      final result = await Process.run('adb', [
+      final adbExe = DependencyManager.getAdbPath();
+      final result = await Process.run(adbExe, [
         'reverse',
         'tcp:5000',
         'tcp:5000',
@@ -348,7 +361,8 @@ class _HostScreenState extends ConsumerState<HostScreen>
   Future<void> _tearDownUsbTunnel() async {
     _addLog('> Removing USB tunnel (adb reverse --remove tcp:5000) …');
     try {
-      final result = await Process.run('adb', [
+      final adbExe = DependencyManager.getAdbPath();
+      final result = await Process.run(adbExe, [
         'reverse',
         '--remove',
         'tcp:5000',
@@ -474,6 +488,7 @@ class _StatusBadge extends StatelessWidget {
   Widget build(BuildContext context) {
     final (color, label) = switch (status) {
       'running' => (AppTheme.green, 'RUNNING'),
+      'checking_deps' => (AppTheme.orange, 'INSTALLING DRIVERS …'),
       'starting' => (AppTheme.orange, 'STARTING …'),
       'error' => (AppTheme.accent, 'ERROR'),
       _ => (AppTheme.textDim, 'STOPPED'),

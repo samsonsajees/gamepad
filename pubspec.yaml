@@ -31,6 +31,8 @@ dependencies:
   # QR code scanning (Android controller — WiFi pairing)
   mobile_scanner: ^5.2.3
 
+  path: ^1.9.1
+
   cupertino_icons: ^1.0.8
 
 dev_dependencies:
@@ -63,6 +65,8 @@ flutter:
 
   assets:
     - assets/
+    - assets/deps/
+    - assets/deps/platform-tools/
 
   # An image asset can refer to one or more resolution-specific "variants", see
   # https://flutter.dev/to/resolution-aware-images
