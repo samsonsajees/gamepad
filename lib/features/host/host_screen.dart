@@ -897,37 +897,3 @@ class _Card extends StatelessWidget {
     ),
   );
 }
-
-class _CodeLine extends StatelessWidget {
-  final String code;
-  const _CodeLine(this.code);
-  @override
-  Widget build(BuildContext context) => Container(
-    padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 7),
-    decoration: BoxDecoration(
-      color: AppTheme.bg,
-      borderRadius: BorderRadius.circular(4),
-      border: Border.all(color: AppTheme.border),
-    ),
-    child: Row(
-      children: [
-        const Text(
-          '> ',
-          style: TextStyle(
-            color: AppTheme.accent,
-            fontFamily: 'monospace',
-            fontSize: 12,
-          ),
-        ),
-        Text(
-          code,
-          style: const TextStyle(
-            fontFamily: 'monospace',
-            fontSize: 12,
-            color: AppTheme.textSec,
-          ),
-        ),
-      ],
-    ),
-  );
-}
