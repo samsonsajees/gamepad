@@ -255,11 +255,6 @@ class _HostScreenState extends ConsumerState<HostScreen>
         ref.read(_playersProvider.notifier).state = 0;
         _addLog('> Server exited (code $code)');
       });
-
-      // Automatically set up USB tunnel so Android can reach the server.
-      await _setupUsbTunnel();
-      // Add Windows Firewall rule so Android WiFi packets can reach the UDP server.
-      await _addFirewallRule();
     } catch (e) {
       ref.read(_statusProvider.notifier).state = 'error';
       _addLog('ERR: Could not launch gamepad_server.exe');
@@ -270,20 +265,20 @@ class _HostScreenState extends ConsumerState<HostScreen>
     }
   }
 
-  Future<void> _setupUsbTunnel() async {
+  Future<void> _setupUsbTunnel(int tcpPort) async {
     final adbEnabled = ref.read(adbEnabledProvider).valueOrNull ?? true;
     if (!adbEnabled) {
       _addLog('> USB Tunneling (ADB) is disabled in settings. Skipping.');
       return;
     }
 
-    _addLog('> Setting up USB tunnel (adb reverse tcp:5000 tcp:5000) …');
+    _addLog('> Setting up USB tunnel (adb reverse tcp:5000 tcp:$tcpPort) …');
     try {
       final adbExe = DependencyManager.getAdbPath();
       final result = await Process.run(adbExe, [
         'reverse',
         'tcp:5000',
-        'tcp:5000',
+        'tcp:$tcpPort',
       ], runInShell: true);
       if (result.exitCode == 0) {
         _addLog('> USB tunnel ready — Android can connect via USB');
@@ -307,9 +302,16 @@ class _HostScreenState extends ConsumerState<HostScreen>
       final json = jsonDecode(line) as Map<String, dynamic>;
       switch (json['event']) {
         case 'session_info':
-          ref.read(_tcpPortProvider.notifier).state = json['tcp_port'] as int;
-          ref.read(_udpPortProvider.notifier).state = json['udp_port'] as int;
+          final tcpPort = json['tcp_port'] as int;
+          final udpPort = json['udp_port'] as int;
+          ref.read(_tcpPortProvider.notifier).state = tcpPort;
+          ref.read(_udpPortProvider.notifier).state = udpPort;
           ref.read(_tokenProvider.notifier).state = json['token'] as int;
+          
+          // Setup tunnels and firewalls once we know the dynamic ports!
+          _setupUsbTunnel(tcpPort);
+          _addFirewallRule(tcpPort, udpPort);
+          
         case 'player_connected':
           ref.read(_playersProvider.notifier).state++;
         case 'player_disconnected':
@@ -330,8 +332,8 @@ class _HostScreenState extends ConsumerState<HostScreen>
     await _removeFirewallRule();
   }
 
-  Future<void> _addFirewallRule() async {
-    _addLog('> Adding Windows Firewall rules for UDP 5001 and TCP 5000 …');
+  Future<void> _addFirewallRule(int tcpPort, int udpPort) async {
+    _addLog('> Adding Windows Firewall rules for UDP $udpPort and TCP $tcpPort …');
     try {
       // Remove any stale rule first (ignore errors)
       await Process.run('netsh', [
@@ -351,7 +353,7 @@ class _HostScreenState extends ConsumerState<HostScreen>
         'name=GamepadServerWiFi',
         'protocol=UDP',
         'dir=in',
-        'localport=5001',
+        'localport=$udpPort',
         'action=allow',
       ], runInShell: true);
 
@@ -364,7 +366,7 @@ class _HostScreenState extends ConsumerState<HostScreen>
         'name=GamepadServerWiFi',
         'protocol=TCP',
         'dir=in',
-        'localport=5000',
+        'localport=$tcpPort',
         'action=allow',
       ], runInShell: true);
 

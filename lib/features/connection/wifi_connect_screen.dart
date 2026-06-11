@@ -16,6 +16,7 @@ class WifiConnectScreen extends ConsumerStatefulWidget {
 
 class _WifiConnectScreenState extends ConsumerState<WifiConnectScreen> {
   final _ipCtrl = TextEditingController();
+  final _portCtrl = TextEditingController();
   final _tokenCtrl = TextEditingController();
 
   bool _scanning = false;
@@ -25,6 +26,7 @@ class _WifiConnectScreenState extends ConsumerState<WifiConnectScreen> {
   @override
   void dispose() {
     _ipCtrl.dispose();
+    _portCtrl.dispose();
     _tokenCtrl.dispose();
     super.dispose();
   }
@@ -220,6 +222,7 @@ class _WifiConnectScreenState extends ConsumerState<WifiConnectScreen> {
       final normalized = raw.replaceFirst('gamepad://', 'http://');
       final uri = Uri.parse(normalized);
       _ipCtrl.text = uri.host;
+      _portCtrl.text = uri.port.toString();
       _tokenCtrl.text = uri.queryParameters['token'] ?? '';
       setState(() => _scanning = false);
     } catch (_) {
@@ -235,7 +238,23 @@ class _WifiConnectScreenState extends ConsumerState<WifiConnectScreen> {
   Widget _manualForm() {
     return Column(
       children: [
-        _field(_ipCtrl, 'PC IP ADDRESS', '192.168.1.x'),
+        Row(
+          children: [
+            Expanded(
+              flex: 3,
+              child: _field(_ipCtrl, 'PC IP ADDRESS', '192.168.1.x'),
+            ),
+            const SizedBox(width: 10),
+            Expanded(
+              child: _field(
+                _portCtrl,
+                'PORT',
+                'e.g. 53912',
+                type: TextInputType.number,
+              ),
+            ),
+          ],
+        ),
         const SizedBox(height: 12),
         _field(
           _tokenCtrl,
@@ -383,13 +402,13 @@ class _WifiConnectScreenState extends ConsumerState<WifiConnectScreen> {
       _isLoading = true;
     });
     final host = _ipCtrl.text.trim();
-    final port = AppConstants.udpPort;
+    final port = int.tryParse(_portCtrl.text.trim()) ?? 0;
     final token = int.tryParse(_tokenCtrl.text.trim()) ?? 0;
 
-    if (host.isEmpty || token == 0) {
+    if (host.isEmpty || port == 0 || token == 0) {
       setState(() {
         _isLoading = false;
-        _errorMsg = 'Enter the PC IP address and session token.';
+        _errorMsg = 'Enter the PC IP address, port, and session token.';
       });
       return;
     }

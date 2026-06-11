@@ -26,31 +26,29 @@ use crate::session::SessionToken;
 // ─────────────────────────────────────────────────────────────────────────────
 
 pub struct UdpServer {
-    port:    u16,
+    socket:  tokio::net::UdpSocket,
     ctrl:    Arc<ControllerHandle>,
     token:   SessionToken,
 }
 
 impl UdpServer {
-    pub fn new(port: u16, ctrl: Arc<ControllerHandle>, token: SessionToken) -> Self {
-        Self { port, ctrl, token }
+    pub fn new(socket: tokio::net::UdpSocket, ctrl: Arc<ControllerHandle>, token: SessionToken) -> Self {
+        Self { socket, ctrl, token }
     }
 
-    pub async fn run(&self) -> Result<()> {
-        // Bind to all interfaces so both LAN and hotspot work
-        let addr = format!("0.0.0.0:{}", self.port);
-        let socket = UdpSocket::bind(&addr).await?;
+    pub async fn run(self) -> Result<()> {
+        let addr = self.socket.local_addr()?;
 
         info!("UDP server listening on {}", addr);
         println!(
             r#"{{"event":"udp_started","port":{}}}"#,
-            self.port
+            addr.port()
         );
 
         let mut buf = vec![0u8; 512];
 
         loop {
-            let (len, src) = match socket.recv_from(&mut buf).await {
+            let (len, src) = match self.socket.recv_from(&mut buf).await {
                 Ok(v)  => v,
                 Err(e) => { warn!("UDP recv error: {}", e); continue; }
             };

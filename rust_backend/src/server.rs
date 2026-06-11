@@ -15,25 +15,24 @@ use crate::protocol::{parse_controller_packet, parse_handshake};
 // ─────────────────────────────────────────────────────────────────────────────
 
 pub struct Server {
-    port:       u16,
+    listener:   tokio::net::TcpListener,
     controller: Arc<ControllerHandle>,
 }
 
 impl Server {
-    pub fn new(port: u16, controller: Arc<ControllerHandle>) -> Self {
-        Self { port, controller }
+    pub fn new(listener: tokio::net::TcpListener, controller: Arc<ControllerHandle>) -> Self {
+        Self { listener, controller }
     }
 
-    pub async fn run(&self) -> Result<()> {
-        let addr = format!("0.0.0.0:{}", self.port);
-        let listener = TcpListener::bind(&addr).await?;
+    pub async fn run(self) -> Result<()> {
+        let addr = self.listener.local_addr()?;
 
         info!("GamePad Server listening on {}", addr);
         // JSON status events are read by the Flutter Windows host
-        println!(r#"{{"event":"server_started","port":{}}}"#, self.port);
+        println!(r#"{{"event":"server_started","port":{}}}"#, addr.port());
 
         loop {
-            match listener.accept().await {
+            match self.listener.accept().await {
                 Ok((socket, addr)) => {
                     info!("Client connected: {}", addr);
                     let ctrl = Arc::clone(&self.controller);
