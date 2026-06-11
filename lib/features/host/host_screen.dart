@@ -461,8 +461,6 @@ class _LeftPanel extends StatelessWidget {
         ),
 
         const SizedBox(height: 24),
-        _UsbBox(),
-        const SizedBox(height: 16),
         _RequirementsBox(),
       ],
     );
@@ -505,39 +503,6 @@ class _StatusBadge extends StatelessWidget {
           ),
         ),
       ],
-    );
-  }
-}
-
-class _UsbBox extends StatelessWidget {
-  @override
-  Widget build(BuildContext context) {
-    return _Card(
-      header: 'USB TUNNEL',
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          _CodeLine('adb reverse tcp:5000 tcp:5000'),
-          const SizedBox(height: 8),
-          const Text(
-            'Auto-configured on Start Server',
-            style: TextStyle(
-              fontFamily: 'monospace',
-              fontSize: 11,
-              color: AppTheme.textDim,
-            ),
-          ),
-          const SizedBox(height: 4),
-          const Text(
-            'Connect USB cable before starting',
-            style: TextStyle(
-              fontFamily: 'monospace',
-              fontSize: 10,
-              color: AppTheme.textDim,
-            ),
-          ),
-        ],
-      ),
     );
   }
 }
