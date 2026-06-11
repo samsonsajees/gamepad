@@ -22,16 +22,15 @@ final udpClientProvider = Provider<UdpClient>((ref) {
 
 // ── Active mode ───────────────────────────────────────────────────────────────
 
-final connectionModeProvider =
-    StateProvider<ConnectionMode>((ref) => ConnectionMode.usb);
+final connectionModeProvider = StateProvider<ConnectionMode>(
+  (ref) => ConnectionMode.usb,
+);
 
 // ── Status stream (whichever client is active) ────────────────────────────────
 
 final connectionStatusStreamProvider = StreamProvider<ConnectionStatus>((ref) {
-  final mode = ref.watch(connectionModeProvider);
-  return mode == ConnectionMode.usb
-      ? ref.watch(tcpClientProvider).statusStream
-      : ref.watch(udpClientProvider).statusStream;
+  // Always use TCP client for connection lifecycle (USB and WiFi both use TCP for status)
+  return ref.watch(tcpClientProvider).statusStream;
 });
 
 // ── Unified notifier ──────────────────────────────────────────────────────────
@@ -49,11 +48,13 @@ class ConnectionNotifier extends AsyncNotifier<ConnectionStatus> {
 
     if (ok) {
       ref.read(connectionModeProvider.notifier).state = ConnectionMode.usb;
-      client.send(PacketEncoder.encodeHandshake(
-        playerId:   AppConstants.defaultPlayerId,
-        deviceName: 'Android Gamepad',
-        layout:     AppConstants.layoutRacing,
-      ));
+      client.send(
+        PacketEncoder.encodeHandshake(
+          playerId: AppConstants.defaultPlayerId,
+          deviceName: 'Android Gamepad',
+          layout: AppConstants.layoutRacing,
+        ),
+      );
       state = const AsyncValue.data(ConnectionStatus.connected);
     } else {
       state = const AsyncValue.data(ConnectionStatus.error);
@@ -63,33 +64,47 @@ class ConnectionNotifier extends AsyncNotifier<ConnectionStatus> {
 
   // ── WiFi / UDP ─────────────────────────────────────────────────────────────
 
-  Future<bool> connectWifi(String host, int port, int token) async {
+  Future<bool> connectWifi(String host, int udpPort, int token) async {
     state = const AsyncValue.loading();
-    final udp = ref.read(udpClientProvider);
-    final ok  = await udp.connect(host, port, token);
+    // The UI passes the UDP port. The TCP port is always UDP port - 1.
+    final tcpPort = udpPort - 1;
 
-    if (ok) {
-      ref.read(connectionModeProvider.notifier).state = ConnectionMode.wifi;
-      // Send handshake so the server registers this player slot
-      udp.send(PacketEncoder.encodeUdpHandshake(
-        playerId:   AppConstants.defaultPlayerId,
-        deviceName: 'Android Gamepad',
-        layout:     AppConstants.layoutRacing,
-      ));
-      state = const AsyncValue.data(ConnectionStatus.connected);
-    } else {
-      state = const AsyncValue.data(ConnectionStatus.error);
+    final tcp = ref.read(tcpClientProvider);
+    final tcpOk = await tcp.connect(host, tcpPort, autoReconnect: false);
+
+    if (tcpOk) {
+      final udp = ref.read(udpClientProvider);
+      final udpOk = await udp.connect(host, udpPort, token);
+
+      if (udpOk) {
+        ref.read(connectionModeProvider.notifier).state = ConnectionMode.wifi;
+
+        // Send TCP handshake to register player slot on server
+        tcp.send(
+          PacketEncoder.encodeHandshake(
+            playerId: AppConstants.defaultPlayerId,
+            deviceName: 'Android Gamepad',
+            layout: AppConstants.layoutRacing,
+          ),
+        );
+
+        state = const AsyncValue.data(ConnectionStatus.connected);
+        return true;
+      } else {
+        await tcp.disconnect();
+      }
     }
-    return ok;
+
+    state = const AsyncValue.data(ConnectionStatus.error);
+    return false;
   }
 
   // ── Disconnect ─────────────────────────────────────────────────────────────
 
   Future<void> disconnect() async {
     final mode = ref.read(connectionModeProvider);
-    if (mode == ConnectionMode.usb) {
-      await ref.read(tcpClientProvider).disconnect();
-    } else {
+    await ref.read(tcpClientProvider).disconnect();
+    if (mode == ConnectionMode.wifi) {
       await ref.read(udpClientProvider).disconnect();
     }
     state = const AsyncValue.data(ConnectionStatus.disconnected);
@@ -98,5 +113,5 @@ class ConnectionNotifier extends AsyncNotifier<ConnectionStatus> {
 
 final connectionNotifierProvider =
     AsyncNotifierProvider<ConnectionNotifier, ConnectionStatus>(
-  ConnectionNotifier.new,
-);
+      ConnectionNotifier.new,
+    );

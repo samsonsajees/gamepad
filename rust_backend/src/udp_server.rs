@@ -82,10 +82,6 @@ impl UdpServer {
                         payload[0..4].try_into().unwrap_or_default(),
                     );
                     self.ctrl.add(player_id);
-                    println!(
-                        r#"{{"event":"player_connected","player_id":{},"mode":"wifi","addr":"{}"}}"#,
-                        player_id, src
-                    );
                     info!("WiFi handshake from P{} at {}", player_id, src);
                 }
 

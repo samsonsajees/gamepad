@@ -63,6 +63,28 @@ class _FpsScreenState extends ConsumerState<FpsScreen> {
     final settings = ref.watch(settingsProvider).valueOrNull
         ?? const GameSettings();
 
+    ref.listen(connectionStatusStreamProvider, (prev, next) async {
+      final stat = next.valueOrNull;
+      // If server drops or connection fails, auto-navigate to connection screen
+      if (stat == ConnectionStatus.disconnected || stat == ConnectionStatus.error) {
+        ref.read(fpsControllerProvider.notifier).stopSensors();
+        ref.read(packetSenderProvider).stop();
+        ref.read(connectionNotifierProvider.notifier).disconnect();
+
+        SystemChrome.setPreferredOrientations([
+          DeviceOrientation.portraitUp,
+          DeviceOrientation.portraitDown,
+        ]);
+
+        if (context.mounted) {
+          Navigator.of(context).pushAndRemoveUntil(
+            MaterialPageRoute(builder: (_) => const ConnectionScreen()),
+            (route) => false,
+          );
+        }
+      }
+    });
+
     return Scaffold(
       backgroundColor: AppTheme.bg,
       body: Stack(

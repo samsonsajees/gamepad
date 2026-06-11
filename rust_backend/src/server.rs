@@ -25,7 +25,7 @@ impl Server {
     }
 
     pub async fn run(&self) -> Result<()> {
-        let addr = format!("127.0.0.1:{}", self.port);
+        let addr = format!("0.0.0.0:{}", self.port);
         let listener = TcpListener::bind(&addr).await?;
 
         info!("GamePad Server listening on {}", addr);

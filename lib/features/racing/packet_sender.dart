@@ -146,10 +146,11 @@ class PacketSender {
   // ── UDP builders (token prepended by UdpClient.send) ─────────────────────
 
   Uint8List _buildUdpPayload(UdpClient u) {
+    final tcpPlayerId = _ref.read(tcpClientProvider).playerId;
     if (_fpsMode) {
       final s = _ref.read(fpsControllerProvider);
       return PacketEncoder.encodeUdpControllerPacket(
-        playerId: u.playerId, sequence: u.nextSequence(),
+        playerId: tcpPlayerId, sequence: u.nextSequence(),
         leftX: s.leftX, leftY: s.leftY,
         rightX: s.rightX, rightY: s.rightY,
         leftTrigger: s.leftTrigger, rightTrigger: s.rightTrigger,
@@ -160,7 +161,7 @@ class PacketSender {
     }
     final s = _ref.read(controllerStateProvider);
     return PacketEncoder.encodeUdpControllerPacket(
-      playerId: u.playerId, sequence: u.nextSequence(),
+      playerId: tcpPlayerId, sequence: u.nextSequence(),
       leftX: s.steeringAngle, leftY: 0, rightX: 0, rightY: 0,
       leftTrigger: s.leftTrigger, rightTrigger: s.rightTrigger,
       buttons: s.buttons,

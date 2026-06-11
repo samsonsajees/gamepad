@@ -331,7 +331,7 @@ class _HostScreenState extends ConsumerState<HostScreen>
   }
 
   Future<void> _addFirewallRule() async {
-    _addLog('> Adding Windows Firewall rule for UDP port 5001 …');
+    _addLog('> Adding Windows Firewall rules for UDP 5001 and TCP 5000 …');
     try {
       // Remove any stale rule first (ignore errors)
       await Process.run('netsh', [
@@ -339,27 +339,43 @@ class _HostScreenState extends ConsumerState<HostScreen>
         'firewall',
         'delete',
         'rule',
-        'name=GamepadServerUDP',
+        'name=GamepadServerWiFi',
       ], runInShell: true);
-      final result = await Process.run('netsh', [
+
+      // Add UDP Rule
+      await Process.run('netsh', [
         'advfirewall',
         'firewall',
         'add',
         'rule',
-        'name=GamepadServerUDP',
+        'name=GamepadServerWiFi',
         'protocol=UDP',
         'dir=in',
         'localport=5001',
         'action=allow',
       ], runInShell: true);
+
+      // Add TCP Rule
+      final result = await Process.run('netsh', [
+        'advfirewall',
+        'firewall',
+        'add',
+        'rule',
+        'name=GamepadServerWiFi',
+        'protocol=TCP',
+        'dir=in',
+        'localport=5000',
+        'action=allow',
+      ], runInShell: true);
+
       if (result.exitCode == 0) {
-        _addLog('> Firewall rule added — WiFi ready');
+        _addLog('> Firewall rules added — WiFi ready');
       } else {
         _addLog('WARN: Firewall rule failed (run as Administrator?)');
-        _addLog('     UDP WiFi may be blocked. Try running the app as Admin.');
+        _addLog('     TCP/UDP WiFi may be blocked. Try running the app as Admin.');
       }
     } catch (_) {
-      _addLog('WARN: Could not add firewall rule.');
+      _addLog('WARN: Could not add firewall rules.');
     }
   }
 
@@ -370,9 +386,9 @@ class _HostScreenState extends ConsumerState<HostScreen>
         'firewall',
         'delete',
         'rule',
-        'name=GamepadServerUDP',
+        'name=GamepadServerWiFi',
       ], runInShell: true);
-      _addLog('> Firewall rule removed');
+      _addLog('> Firewall rules removed');
     } catch (_) {}
   }
 
