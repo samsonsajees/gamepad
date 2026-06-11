@@ -19,7 +19,6 @@ class _ConnectionScreenState extends ConsumerState<ConnectionScreen>
     with SingleTickerProviderStateMixin {
   late final TabController _tabs;
   final _hostCtrl = TextEditingController(text: AppConstants.defaultHost);
-  final _portCtrl = TextEditingController(text: '${AppConstants.tcpPort}');
   String? _errorMsg;
 
   @override
@@ -32,7 +31,6 @@ class _ConnectionScreenState extends ConsumerState<ConnectionScreen>
   void dispose() {
     _tabs.dispose();
     _hostCtrl.dispose();
-    _portCtrl.dispose();
     super.dispose();
   }
 
@@ -44,22 +42,24 @@ class _ConnectionScreenState extends ConsumerState<ConnectionScreen>
     // Only navigate for USB connections — WifiConnectScreen has its own listener.
     // Without this guard, WiFi connect triggers BOTH listeners, causing a double
     // pushReplacement that disposes the first RacingScreen and kills sensors.
-    ref.listen<AsyncValue<ConnectionStatus>>(
-      connectionNotifierProvider,
-      (_, next) {
-        if (next.valueOrNull == ConnectionStatus.connected) {
-          final mode = ref.read(connectionModeProvider);
-          if (mode == ConnectionMode.usb) {
-            Navigator.of(context).pushReplacement(
-              MaterialPageRoute(builder: (_) => const RacingScreen()),
-            );
-          }
+    ref.listen<AsyncValue<ConnectionStatus>>(connectionNotifierProvider, (
+      _,
+      next,
+    ) {
+      if (next.valueOrNull == ConnectionStatus.connected) {
+        final mode = ref.read(connectionModeProvider);
+        if (mode == ConnectionMode.usb) {
+          Navigator.of(context).pushReplacement(
+            MaterialPageRoute(builder: (_) => const RacingScreen()),
+          );
         }
-        if (next.valueOrNull == ConnectionStatus.error) {
-          setState(() => _errorMsg = 'Connection failed — is the server running?');
-        }
-      },
-    );
+      }
+      if (next.valueOrNull == ConnectionStatus.error) {
+        setState(
+          () => _errorMsg = 'Connection failed — is the server running?',
+        );
+      }
+    });
 
     return Scaffold(
       backgroundColor: AppTheme.bg,
@@ -101,7 +101,7 @@ class _ConnectionScreenState extends ConsumerState<ConnectionScreen>
                   unselectedLabelColor: AppTheme.textSec,
                   tabs: const [
                     Tab(icon: Icon(Icons.usb_rounded, size: 16), text: 'USB'),
-                    Tab(icon: Icon(Icons.wifi_rounded,  size: 16), text: 'WiFi'),
+                    Tab(icon: Icon(Icons.wifi_rounded, size: 16), text: 'WiFi'),
                   ],
                 ),
               ),
@@ -114,10 +114,9 @@ class _ConnectionScreenState extends ConsumerState<ConnectionScreen>
                 controller: _tabs,
                 children: [
                   _UsbTab(
-                    hostCtrl:  _hostCtrl,
-                    portCtrl:  _portCtrl,
+                    hostCtrl: _hostCtrl,
                     isLoading: isLoading,
-                    errorMsg:  _errorMsg,
+                    errorMsg: _errorMsg,
                     onConnect: _connectUsb,
                   ),
                   const WifiConnectScreen(),
@@ -134,7 +133,8 @@ class _ConnectionScreenState extends ConsumerState<ConnectionScreen>
     return Row(
       children: [
         Container(
-          width: 5, height: 44,
+          width: 5,
+          height: 44,
           decoration: BoxDecoration(
             color: AppTheme.accent,
             borderRadius: BorderRadius.circular(2),
@@ -147,16 +147,20 @@ class _ConnectionScreenState extends ConsumerState<ConnectionScreen>
             const Text(
               'MOBILE GAMEPAD',
               style: TextStyle(
-                fontFamily: 'monospace', fontSize: 20,
-                fontWeight: FontWeight.w900, color: AppTheme.textPri,
+                fontFamily: 'monospace',
+                fontSize: 20,
+                fontWeight: FontWeight.w900,
+                color: AppTheme.textPri,
                 letterSpacing: 3,
               ),
             ),
             Text(
               'RACING + FPS EDITION',
               style: TextStyle(
-                fontFamily: 'monospace', fontSize: 10,
-                color: AppTheme.accent.withOpacity(0.8), letterSpacing: 2.5,
+                fontFamily: 'monospace',
+                fontSize: 10,
+                color: AppTheme.accent.withOpacity(0.8),
+                letterSpacing: 2.5,
               ),
             ),
           ],
@@ -170,7 +174,7 @@ class _ConnectionScreenState extends ConsumerState<ConnectionScreen>
     final host = _hostCtrl.text.trim().isEmpty
         ? AppConstants.defaultHost
         : _hostCtrl.text.trim();
-    final port = int.tryParse(_portCtrl.text.trim()) ?? AppConstants.tcpPort;
+    final port = AppConstants.tcpPort;
     await ref.read(connectionNotifierProvider.notifier).connectUsb(host, port);
   }
 }
@@ -181,14 +185,12 @@ class _ConnectionScreenState extends ConsumerState<ConnectionScreen>
 
 class _UsbTab extends StatelessWidget {
   final TextEditingController hostCtrl;
-  final TextEditingController portCtrl;
-  final bool    isLoading;
+  final bool isLoading;
   final String? errorMsg;
   final VoidCallback onConnect;
 
   const _UsbTab({
     required this.hostCtrl,
-    required this.portCtrl,
     required this.isLoading,
     required this.errorMsg,
     required this.onConnect,
@@ -224,22 +226,28 @@ class _UsbTab extends StatelessWidget {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          const Row(children: [
-            Icon(Icons.usb_rounded, color: AppTheme.accent, size: 14),
-            SizedBox(width: 8),
-            Text('USB SETUP', style: TextStyle(
-              fontFamily: 'monospace', color: AppTheme.accent,
-              fontSize: 10, fontWeight: FontWeight.w800, letterSpacing: 2.5,
-            )),
-          ]),
+          const Row(
+            children: [
+              Icon(Icons.usb_rounded, color: AppTheme.accent, size: 14),
+              SizedBox(width: 8),
+              Text(
+                'USB SETUP',
+                style: TextStyle(
+                  fontFamily: 'monospace',
+                  color: AppTheme.accent,
+                  fontSize: 10,
+                  fontWeight: FontWeight.w800,
+                  letterSpacing: 2.5,
+                ),
+              ),
+            ],
+          ),
           const SizedBox(height: 12),
           for (final e in const [
             ('1', 'Enable USB Debugging on Android'),
             ('2', 'Connect USB cable to Windows PC'),
-            ('3', 'Install ViGEmBus driver on Windows'),
-            ('4', 'Run:  adb reverse tcp:5000 tcp:5000'),
-            ('5', 'Launch gamepad_server.exe on Windows'),
-            ('6', 'Tap CONNECT below ↓'),
+            ('3', 'Start the Server in PC'),
+            ('4', 'Tap CONNECT below ↓'),
           ])
             _step(e.$1, e.$2),
         ],
@@ -254,23 +262,36 @@ class _UsbTab extends StatelessWidget {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Container(
-            width: 20, height: 20,
+            width: 20,
+            height: 20,
             alignment: Alignment.center,
             decoration: BoxDecoration(
               color: AppTheme.card,
               borderRadius: BorderRadius.circular(4),
               border: Border.all(color: AppTheme.border),
             ),
-            child: Text(n, style: const TextStyle(
-              fontFamily: 'monospace', fontSize: 10,
-              fontWeight: FontWeight.w700, color: AppTheme.textSec,
-            )),
+            child: Text(
+              n,
+              style: const TextStyle(
+                fontFamily: 'monospace',
+                fontSize: 10,
+                fontWeight: FontWeight.w700,
+                color: AppTheme.textSec,
+              ),
+            ),
           ),
           const SizedBox(width: 10),
-          Expanded(child: Text(text, style: const TextStyle(
-            fontFamily: 'monospace', fontSize: 12,
-            color: AppTheme.textSec, height: 1.5,
-          ))),
+          Expanded(
+            child: Text(
+              text,
+              style: const TextStyle(
+                fontFamily: 'monospace',
+                fontSize: 12,
+                color: AppTheme.textSec,
+                height: 1.5,
+              ),
+            ),
+          ),
         ],
       ),
     );
@@ -279,38 +300,52 @@ class _UsbTab extends StatelessWidget {
   Widget _form(BuildContext context) {
     return Column(
       children: [
-        Row(children: [
-          Expanded(flex: 3, child: _field(hostCtrl, 'HOST', AppConstants.defaultHost)),
-          const SizedBox(width: 12),
-          Expanded(child: _field(portCtrl, 'PORT', '5000',
-              type: TextInputType.number)),
-        ]),
+        _field(hostCtrl, 'HOST', AppConstants.defaultHost),
         const SizedBox(height: 16),
         SizedBox(
-          width: double.infinity, height: 52,
+          width: double.infinity,
+          height: 52,
           child: AnimatedContainer(
             duration: const Duration(milliseconds: 200),
             decoration: BoxDecoration(
               color: isLoading ? AppTheme.card : AppTheme.accent,
               borderRadius: BorderRadius.circular(8),
-              boxShadow: isLoading ? [] : [BoxShadow(
-                color: AppTheme.accent.withOpacity(0.4),
-                blurRadius: 18, offset: const Offset(0, 4),
-              )],
+              boxShadow: isLoading
+                  ? []
+                  : [
+                      BoxShadow(
+                        color: AppTheme.accent.withOpacity(0.4),
+                        blurRadius: 18,
+                        offset: const Offset(0, 4),
+                      ),
+                    ],
             ),
             child: Material(
               color: Colors.transparent,
               child: InkWell(
                 borderRadius: BorderRadius.circular(8),
                 onTap: isLoading ? null : onConnect,
-                child: Center(child: isLoading
-                  ? const SizedBox(width: 22, height: 22,
-                      child: CircularProgressIndicator(
-                        color: AppTheme.textSec, strokeWidth: 2))
-                  : const Text('CONNECT', style: TextStyle(
-                      fontFamily: 'monospace', color: Colors.white,
-                      fontSize: 14, fontWeight: FontWeight.w900,
-                      letterSpacing: 3.5))),
+                child: Center(
+                  child: isLoading
+                      ? const SizedBox(
+                          width: 22,
+                          height: 22,
+                          child: CircularProgressIndicator(
+                            color: AppTheme.textSec,
+                            strokeWidth: 2,
+                          ),
+                        )
+                      : const Text(
+                          'CONNECT',
+                          style: TextStyle(
+                            fontFamily: 'monospace',
+                            color: Colors.white,
+                            fontSize: 14,
+                            fontWeight: FontWeight.w900,
+                            letterSpacing: 3.5,
+                          ),
+                        ),
+                ),
               ),
             ),
           ),
@@ -319,20 +354,33 @@ class _UsbTab extends StatelessWidget {
     );
   }
 
-  Widget _field(TextEditingController ctrl, String label, String hint,
-      {TextInputType type = TextInputType.text}) {
+  Widget _field(
+    TextEditingController ctrl,
+    String label,
+    String hint, {
+    TextInputType type = TextInputType.text,
+  }) {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Text(label, style: const TextStyle(
-          fontFamily: 'monospace', fontSize: 10,
-          color: AppTheme.textDim, letterSpacing: 2,
-        )),
+        Text(
+          label,
+          style: const TextStyle(
+            fontFamily: 'monospace',
+            fontSize: 10,
+            color: AppTheme.textDim,
+            letterSpacing: 2,
+          ),
+        ),
         const SizedBox(height: 6),
         TextField(
-          controller: ctrl, keyboardType: type,
-          style: const TextStyle(fontFamily: 'monospace',
-              color: AppTheme.textPri, fontSize: 14),
+          controller: ctrl,
+          keyboardType: type,
+          style: const TextStyle(
+            fontFamily: 'monospace',
+            color: AppTheme.textPri,
+            fontSize: 14,
+          ),
           decoration: InputDecoration(hintText: hint),
         ),
       ],
@@ -347,12 +395,22 @@ class _UsbTab extends StatelessWidget {
         borderRadius: BorderRadius.circular(6),
         border: Border.all(color: AppTheme.accent.withOpacity(0.4)),
       ),
-      child: Row(children: [
-        const Icon(Icons.error_outline, color: AppTheme.accent, size: 16),
-        const SizedBox(width: 10),
-        Expanded(child: Text(msg, style: const TextStyle(
-          fontFamily: 'monospace', color: AppTheme.accent, fontSize: 11))),
-      ]),
+      child: Row(
+        children: [
+          const Icon(Icons.error_outline, color: AppTheme.accent, size: 16),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Text(
+              msg,
+              style: const TextStyle(
+                fontFamily: 'monospace',
+                color: AppTheme.accent,
+                fontSize: 11,
+              ),
+            ),
+          ),
+        ],
+      ),
     );
   }
 }
