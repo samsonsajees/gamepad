@@ -36,6 +36,17 @@ async fn main() -> Result<()> {
     let tcp_srv = server::Server::new(tcp_port, Arc::clone(&ctrl));
     let udp_srv = udp_server::UdpServer::new(udp_port, Arc::clone(&ctrl), token);
 
+    // Watch stdin: if the parent Flutter process dies, the stdin pipe breaks.
+    // This guarantees the server won't become an orphaned background process!
+    tokio::spawn(async {
+        use tokio::io::AsyncReadExt;
+        let mut stdin = tokio::io::stdin();
+        let mut buf = [0u8; 1];
+        let _ = stdin.read(&mut buf).await;
+        log::info!("Stdin closed/broken. Parent died. Exiting.");
+        std::process::exit(0);
+    });
+
     // Run both servers; if either fails the whole process exits
     tokio::try_join!(tcp_srv.run(), udp_srv.run())?;
 
