@@ -17,6 +17,7 @@ class TcpClient {
   bool    _autoReconnect      = false;
   String? _lastHost;
   int?    _lastPort;
+  Uint8List? _handshakePacket;
   int     _reconnectAttempts  = 0;
   Timer?  _reconnectTimer;
 
@@ -34,10 +35,12 @@ class TcpClient {
     String host,
     int    port, {
     bool autoReconnect = true,
+    Uint8List? handshake,
   }) async {
     _lastHost       = host;
     _lastPort       = port;
     _autoReconnect  = autoReconnect;
+    _handshakePacket = handshake;
     _reconnectAttempts = 0;
     return _doConnect(host, port);
   }
@@ -81,8 +84,12 @@ class TcpClient {
         cancelOnError: true,
       );
 
-      _reconnectAttempts = 0;
       _setStatus(ConnectionStatus.connected);
+      
+      if (_handshakePacket != null) {
+        send(_handshakePacket!);
+      }
+      
       return true;
     } on SocketException {
       _setStatus(ConnectionStatus.error);
@@ -137,6 +144,7 @@ class TcpClient {
           final success = data[5];
           if (success == 1) {
             _playerId = view.getUint32(6, Endian.little);
+            _reconnectAttempts = 0; // Successfully authenticated, reset attempts
           }
         }
 

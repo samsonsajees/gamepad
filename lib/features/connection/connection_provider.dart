@@ -44,17 +44,21 @@ class ConnectionNotifier extends AsyncNotifier<ConnectionStatus> {
   Future<bool> connectUsb(String host, int port) async {
     state = const AsyncValue.loading();
     final client = ref.read(tcpClientProvider);
-    final ok = await client.connect(host, port, autoReconnect: true);
+    final handshake = PacketEncoder.encodeHandshake(
+      playerId: AppConstants.defaultPlayerId,
+      deviceName: 'Android Gamepad',
+      layout: AppConstants.layoutRacing,
+    );
+
+    final ok = await client.connect(
+      host,
+      port,
+      autoReconnect: true,
+      handshake: handshake,
+    );
 
     if (ok) {
       ref.read(connectionModeProvider.notifier).state = ConnectionMode.usb;
-      client.send(
-        PacketEncoder.encodeHandshake(
-          playerId: AppConstants.defaultPlayerId,
-          deviceName: 'Android Gamepad',
-          layout: AppConstants.layoutRacing,
-        ),
-      );
       state = const AsyncValue.data(ConnectionStatus.connected);
     } else {
       state = const AsyncValue.data(ConnectionStatus.error);
@@ -70,7 +74,18 @@ class ConnectionNotifier extends AsyncNotifier<ConnectionStatus> {
     final tcpPort = udpPort - 1;
 
     final tcp = ref.read(tcpClientProvider);
-    final tcpOk = await tcp.connect(host, tcpPort, autoReconnect: false);
+    final handshake = PacketEncoder.encodeHandshake(
+      playerId: AppConstants.defaultPlayerId,
+      deviceName: 'Android Gamepad',
+      layout: AppConstants.layoutRacing,
+    );
+
+    final tcpOk = await tcp.connect(
+      host,
+      tcpPort,
+      autoReconnect: false,
+      handshake: handshake,
+    );
 
     if (tcpOk) {
       final udp = ref.read(udpClientProvider);
@@ -78,16 +93,6 @@ class ConnectionNotifier extends AsyncNotifier<ConnectionStatus> {
 
       if (udpOk) {
         ref.read(connectionModeProvider.notifier).state = ConnectionMode.wifi;
-
-        // Send TCP handshake to register player slot on server
-        tcp.send(
-          PacketEncoder.encodeHandshake(
-            playerId: AppConstants.defaultPlayerId,
-            deviceName: 'Android Gamepad',
-            layout: AppConstants.layoutRacing,
-          ),
-        );
-
         state = const AsyncValue.data(ConnectionStatus.connected);
         return true;
       } else {
