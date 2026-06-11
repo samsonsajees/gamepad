@@ -2,7 +2,6 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:mobile_scanner/mobile_scanner.dart';
 
-import '../../core/constants.dart';
 import '../../core/tcp_client.dart';
 import '../../shared/theme.dart';
 import '../racing/racing_screen.dart';
