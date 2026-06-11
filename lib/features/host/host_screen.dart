@@ -10,6 +10,7 @@ import 'package:qr_flutter/qr_flutter.dart';
 import '../../shared/theme.dart';
 import 'dependency_manager.dart';
 import 'dependency_screen.dart';
+import 'host_settings_provider.dart';
 
 // ── Server state ──────────────────────────────────────────────────────────────
 
@@ -110,6 +111,9 @@ class _HostScreenState extends ConsumerState<HostScreen>
               child: _LeftPanel(
                 status: status,
                 players: players,
+                ip: ip,
+                udpPort: udpPort,
+                token: token,
                 onStart: _startServer,
                 onStop: _stopServer,
               ),
@@ -148,8 +152,8 @@ class _HostScreenState extends ConsumerState<HostScreen>
                           text: 'PLAYERS',
                         ),
                         Tab(
-                          icon: Icon(Icons.wifi_rounded, size: 15),
-                          text: 'WiFi',
+                          icon: Icon(Icons.settings_rounded, size: 15),
+                          text: 'SETTINGS',
                         ),
                       ],
                     ),
@@ -167,13 +171,8 @@ class _HostScreenState extends ConsumerState<HostScreen>
                             Expanded(child: _LogPanel(logs: logs)),
                           ],
                         ),
-                        // WiFi tab
-                        _WifiPanel(
-                          ip: ip,
-                          udpPort: udpPort,
-                          token: token,
-                          running: status == 'running',
-                        ),
+                        // Settings tab
+                        _SettingsPanel(),
                       ],
                     ),
                   ),
@@ -272,6 +271,12 @@ class _HostScreenState extends ConsumerState<HostScreen>
   }
 
   Future<void> _setupUsbTunnel() async {
+    final adbEnabled = ref.read(adbEnabledProvider).valueOrNull ?? true;
+    if (!adbEnabled) {
+      _addLog('> USB Tunneling (ADB) is disabled in settings. Skipping.');
+      return;
+    }
+
     _addLog('> Setting up USB tunnel (adb reverse tcp:5000 tcp:5000) …');
     try {
       final adbExe = DependencyManager.getAdbPath();
@@ -372,6 +377,9 @@ class _HostScreenState extends ConsumerState<HostScreen>
   }
 
   Future<void> _tearDownUsbTunnel() async {
+    final adbEnabled = ref.read(adbEnabledProvider).valueOrNull ?? true;
+    if (!adbEnabled) return;
+
     _addLog('> Removing USB tunnel (adb reverse --remove tcp:5000) …');
     try {
       final adbExe = DependencyManager.getAdbPath();
@@ -406,10 +414,16 @@ class _HostScreenState extends ConsumerState<HostScreen>
 class _LeftPanel extends StatelessWidget {
   final String status;
   final int players;
+  final String ip;
+  final int udpPort;
+  final int token;
   final Future<void> Function() onStart, onStop;
   const _LeftPanel({
     required this.status,
     required this.players,
+    required this.ip,
+    required this.udpPort,
+    required this.token,
     required this.onStart,
     required this.onStop,
   });
@@ -488,7 +502,8 @@ class _LeftPanel extends StatelessWidget {
         ),
 
         const SizedBox(height: 24),
-        _RequirementsBox(),
+        if (running)
+          _WifiPanel(ip: ip, udpPort: udpPort, token: token, running: running),
       ],
     );
   }
@@ -533,44 +548,6 @@ class _StatusBadge extends StatelessWidget {
       ],
     );
   }
-}
-
-class _RequirementsBox extends StatelessWidget {
-  @override
-  Widget build(BuildContext context) => _Card(
-    header: 'REQUIREMENTS',
-    child: Column(
-      children: [
-        for (final r in const [
-          'ViGEmBus driver installed',
-          'gamepad_server.exe in same folder',
-          'ADB in system PATH',
-          'USB Debugging on Android',
-        ])
-          Padding(
-            padding: const EdgeInsets.only(bottom: 7),
-            child: Row(
-              children: [
-                const Icon(
-                  Icons.radio_button_unchecked,
-                  size: 11,
-                  color: AppTheme.border,
-                ),
-                const SizedBox(width: 8),
-                Text(
-                  r,
-                  style: const TextStyle(
-                    fontFamily: 'monospace',
-                    fontSize: 11,
-                    color: AppTheme.textDim,
-                  ),
-                ),
-              ],
-            ),
-          ),
-      ],
-    ),
-  );
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -618,73 +595,67 @@ class _WifiPanel extends StatelessWidget {
       );
     }
 
-    return Row(
-      crossAxisAlignment: CrossAxisAlignment.start,
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
         // QR code
-        Container(
-          padding: const EdgeInsets.all(16),
-          decoration: BoxDecoration(
-            color: Colors.white,
-            borderRadius: BorderRadius.circular(12),
-          ),
-          child: QrImageView(
-            data: _qrData,
-            version: QrVersions.auto,
-            size: 180,
-            backgroundColor: Colors.white,
-            eyeStyle: const QrEyeStyle(
-              eyeShape: QrEyeShape.square,
-              color: Colors.black,
+        Center(
+          child: Container(
+            padding: const EdgeInsets.all(12),
+            decoration: BoxDecoration(
+              color: Colors.white,
+              borderRadius: BorderRadius.circular(12),
             ),
-            dataModuleStyle: const QrDataModuleStyle(
-              dataModuleShape: QrDataModuleShape.square,
-              color: Colors.black,
+            child: QrImageView(
+              data: _qrData,
+              version: QrVersions.auto,
+              size: 140,
+              backgroundColor: Colors.white,
+              eyeStyle: const QrEyeStyle(
+                eyeShape: QrEyeShape.square,
+                color: Colors.black,
+              ),
+              dataModuleStyle: const QrDataModuleStyle(
+                dataModuleShape: QrDataModuleShape.square,
+                color: Colors.black,
+              ),
             ),
           ),
         ),
-        const SizedBox(width: 24),
+        const SizedBox(height: 24),
 
         // Connection details
-        Expanded(
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              const Text(
-                'WIFI CONNECTION',
-                style: TextStyle(
-                  fontFamily: 'monospace',
-                  fontSize: 10,
-                  color: AppTheme.textDim,
-                  letterSpacing: 2.5,
-                ),
-              ),
-              const SizedBox(height: 16),
-              _InfoRow(label: 'PC IP', value: ip),
-              _InfoRow(label: 'UDP PORT', value: '$udpPort'),
-              _InfoRow(label: 'TOKEN', value: '$token', copyable: true),
-              const SizedBox(height: 20),
-              Container(
-                padding: const EdgeInsets.all(12),
-                decoration: BoxDecoration(
-                  color: AppTheme.green.withOpacity(0.08),
-                  borderRadius: BorderRadius.circular(8),
-                  border: Border.all(color: AppTheme.green.withOpacity(0.3)),
-                ),
-                child: const Text(
-                  '1. Both devices on the same WiFi\n'
-                  '2. Scan QR code in the Android app\n'
-                  '   (WiFi tab → Scan QR Code)\n'
-                  '3. Or enter IP + Token manually',
-                  style: TextStyle(
-                    fontFamily: 'monospace',
-                    fontSize: 11,
-                    color: AppTheme.textSec,
-                    height: 1.7,
-                  ),
-                ),
-              ),
-            ],
+        const Text(
+          'WIFI CONNECTION',
+          style: TextStyle(
+            fontFamily: 'monospace',
+            fontSize: 10,
+            color: AppTheme.textDim,
+            letterSpacing: 2.5,
+          ),
+        ),
+        const SizedBox(height: 16),
+        _InfoRow(label: 'PC IP', value: ip),
+        _InfoRow(label: 'UDP PORT', value: '$udpPort'),
+        _InfoRow(label: 'TOKEN', value: '$token', copyable: true),
+        const SizedBox(height: 20),
+        Container(
+          padding: const EdgeInsets.all(12),
+          decoration: BoxDecoration(
+            color: AppTheme.green.withOpacity(0.08),
+            borderRadius: BorderRadius.circular(8),
+            border: Border.all(color: AppTheme.green.withOpacity(0.3)),
+          ),
+          child: const Text(
+            '1. Both devices on same WiFi\n'
+            '2. Scan QR code in Android app\n'
+            '3. Or enter IP + Token manually',
+            style: TextStyle(
+              fontFamily: 'monospace',
+              fontSize: 10,
+              color: AppTheme.textSec,
+              height: 1.7,
+            ),
           ),
         ),
       ],
@@ -924,4 +895,80 @@ class _Card extends StatelessWidget {
       ],
     ),
   );
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Settings panel
+// ─────────────────────────────────────────────────────────────────────────────
+
+class _SettingsPanel extends ConsumerWidget {
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final adbEnabled = ref.watch(adbEnabledProvider).valueOrNull ?? true;
+
+    return Padding(
+      padding: const EdgeInsets.all(16.0),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Text(
+            'CONNECTION PREFERENCES',
+            style: TextStyle(
+              fontFamily: 'monospace',
+              fontSize: 10,
+              color: AppTheme.textDim,
+              letterSpacing: 2.5,
+            ),
+          ),
+          const SizedBox(height: 16),
+          Container(
+            padding: const EdgeInsets.all(16),
+            decoration: BoxDecoration(
+              color: AppTheme.card,
+              borderRadius: BorderRadius.circular(8),
+              border: Border.all(color: AppTheme.border),
+            ),
+            child: Row(
+              children: [
+                const Icon(Icons.cable_rounded, color: AppTheme.textPri),
+                const SizedBox(width: 16),
+                const Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        'Enable USB Tethering (ADB)',
+                        style: TextStyle(
+                          fontFamily: 'monospace',
+                          fontSize: 13,
+                          fontWeight: FontWeight.bold,
+                          color: AppTheme.textPri,
+                        ),
+                      ),
+                      SizedBox(height: 4),
+                      Text(
+                        'Allows Android app to connect via USB cable.',
+                        style: TextStyle(
+                          fontFamily: 'monospace',
+                          fontSize: 11,
+                          color: AppTheme.textDim,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                Switch(
+                  value: adbEnabled,
+                  activeColor: AppTheme.accent,
+                  onChanged: (val) {
+                    ref.read(adbEnabledProvider.notifier).toggleAdb(val);
+                  },
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
 }
